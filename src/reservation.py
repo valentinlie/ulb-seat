@@ -8,14 +8,16 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from config import BASE_URL, PREFERRED_SEATS
+from config import BASE_URL, GROUP_ROOM_SECTION_KEYWORD, PREFERRED_GROUP_ROOMS, PREFERRED_SEATS
 
 
 def find_timeslot(
-    session: requests.Session, library_id: int, target_date: str, target_time: str
+    session: requests.Session, library_id: int, target_date: str, target_time: str,
+    group_room: bool = False,
 ) -> str:
     """Find the matching time slot. Returns the relative URL (with onetime_token)."""
-    print(f"[3/6] Looking for time slot: {target_date} {target_time} at library {library_id}...")
+    slot_type = "group room" if group_room else "seat"
+    print(f"[3/6] Looking for {slot_type} time slot: {target_date} {target_time} at library {library_id}...")
 
     url = f"{BASE_URL}?mod=190&library_id={library_id}"
     resp = session.get(url)
@@ -50,11 +52,15 @@ def find_timeslot(
         qs = parse_qs(urlparse(href).query)
         slot_id = int(qs["reservationtimeslot_id"][0])
 
+        # Filter by section type (group room vs individual)
+        section_h2 = row.find_previous("h2")
+        section = section_h2.get_text().strip() if section_h2 else ""
+        is_group_section = GROUP_ROOM_SECTION_KEYWORD.lower() in section.lower()
+        if group_room != is_group_section:
+            continue
+
         if time_match:
             slot_time = f"{time_match.group(1)}-{time_match.group(2)}"
-            # Get section name from preceding h2
-            section_h2 = row.find_previous("h2")
-            section = section_h2.get_text().strip() if section_h2 else ""
             available_slots.append((slot_time, slot_id, section))
 
         # Check time match
@@ -75,9 +81,10 @@ def find_timeslot(
     sys.exit(1)
 
 
-def select_seat(session: requests.Session, timeslot_href: str) -> tuple[int, str]:
-    """Select the first available seat. Returns (seat_id, seat_description)."""
-    print(f"[4/6] Fetching available seats...")
+def select_seat(session: requests.Session, timeslot_href: str, group_room: bool = False) -> tuple[str, str]:
+    """Select the first available seat/room. Returns (seat_href, seat_description)."""
+    slot_type = "group rooms" if group_room else "seats"
+    print(f"[4/6] Fetching available {slot_type}...")
 
     url = urljoin(BASE_URL, timeslot_href)
     resp = session.get(url)
@@ -101,27 +108,31 @@ def select_seat(session: requests.Session, timeslot_href: str) -> tuple[int, str
             seat_links.append((href, seat_id, desc))
 
     if not seat_links:
-        print("ERROR: No available seats found.")
+        print(f"ERROR: No available {slot_type} found.")
         sys.exit(1)
 
-    print(f"  {len(seat_links)} seats available.")
+    print(f"  {len(seat_links)} {slot_type} available.")
 
-    # Try preferred seats first (match by seat number in description)
+    # Try preferred seats/rooms first (match by number in description)
+    preferred_list = PREFERRED_GROUP_ROOMS if group_room else PREFERRED_SEATS
     seat_by_number = {}
     for href, sid, desc in seat_links:
-        m = re.search(r"Platz\s+(\d+)", desc)
+        m = re.search(r"(?:Platz|Kabine|Raum)\s+(\d+)", desc)
         if m:
             seat_by_number[int(m.group(1))] = (href, sid, desc)
 
-    for preferred in PREFERRED_SEATS:
+    for preferred in preferred_list:
         if preferred in seat_by_number:
             seat_href, seat_id, desc = seat_by_number[preferred]
-            print(f"  Selected preferred seat: {desc} (ID={seat_id})")
+            print(f"  Selected preferred {slot_type.rstrip('s')}: {desc} (ID={seat_id})")
             return seat_href, desc
 
     # Fallback to first available
     seat_href, seat_id, desc = seat_links[0]
-    print(f"  Preferred seats {PREFERRED_SEATS} not available, falling back to: {desc} (ID={seat_id})")
+    if preferred_list:
+        print(f"  Preferred {preferred_list} not available, falling back to: {desc} (ID={seat_id})")
+    else:
+        print(f"  Selected: {desc} (ID={seat_id})")
     return seat_href, desc
 
 

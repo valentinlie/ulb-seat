@@ -41,6 +41,11 @@ def main():
         required=True,
         help='Time slot (HH:MM-HH:MM, e.g. "08:00-12:00")',
     )
+    parser.add_argument(
+        "--group-room",
+        action="store_true",
+        help="Book a group room (Arbeitskabine) instead of an individual seat",
+    )
     args = parser.parse_args()
 
     if args.date_offset is not None:
@@ -53,7 +58,8 @@ def main():
             print(f"  {kid}: {name}")
         sys.exit(1)
 
-    print(f"Target: {LIBRARIES[args.library]} (ID={args.library})")
+    booking_type = "group room" if args.group_room else "seat"
+    print(f"Target: {LIBRARIES[args.library]} (ID={args.library}), type: {booking_type}")
     print(f"Date: {args.date}, Time: {args.time}")
 
     session = requests.Session()
@@ -61,8 +67,8 @@ def main():
 
     html = login(session)
     handle_captcha(session, html)
-    timeslot_href = find_timeslot(session, args.library, args.date, args.time)
-    seat_href, _ = select_seat(session, timeslot_href)
+    timeslot_href = find_timeslot(session, args.library, args.date, args.time, group_room=args.group_room)
+    seat_href, _ = select_seat(session, timeslot_href, group_room=args.group_room)
     success = reserve_seat(session, seat_href)
 
     sys.exit(0 if success else 1)
