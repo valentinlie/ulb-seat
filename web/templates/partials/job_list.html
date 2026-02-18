@@ -1,0 +1,22 @@
+{% if jobs %}
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Library</th>
+            <th>Time Slot</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for job in jobs %}
+            {% include "partials/job_row.html" %}
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No jobs yet. <a href="/jobs/new">Create one</a>.</p>
+{% endif %}

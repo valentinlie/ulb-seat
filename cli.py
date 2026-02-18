@@ -2,17 +2,18 @@
 """ULB Münster library seat reservation bot."""
 
 import argparse
+import logging
 import sys
-import time
 from datetime import datetime, timedelta
 
-import requests
-
 from config import LIBRARIES
-from auth import login, handle_captcha
-from reservation import find_timeslot, select_seat, reserve_seat
+from core.exceptions import BookingError
+from core.booking import execute_booking
+
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     parser = argparse.ArgumentParser(
         description="ULB Münster library seat reservation bot",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -46,6 +47,11 @@ def main():
         action="store_true",
         help="Book a group room (Arbeitskabine) instead of an individual seat",
     )
+    parser.add_argument(
+        "--section",
+        default="",
+        help='Preferred section keyword (e.g. "Hauptlesesaal"). Falls back to first available.',
+    )
     args = parser.parse_args()
 
     if args.date_offset is not None:
@@ -62,16 +68,14 @@ def main():
     print(f"Target: {LIBRARIES[args.library]} (ID={args.library}), type: {booking_type}")
     print(f"Date: {args.date}, Time: {args.time}")
 
-    session = requests.Session()
-    session.headers.update({"User-Agent": "Mozilla/5.0"})
-
-    html = login(session)
-    handle_captcha(session, html)
-    timeslot_href = find_timeslot(session, args.library, args.date, args.time, group_room=args.group_room)
-    seat_href, _ = select_seat(session, timeslot_href, group_room=args.group_room)
-    success = reserve_seat(session, seat_href)
-
-    sys.exit(0 if success else 1)
+    try:
+        result = execute_booking(args.library, args.date, args.time,
+                                 group_room=args.group_room, preferred_section=args.section)
+        print(f"\nBooking successful: {result['message']}")
+        sys.exit(0)
+    except BookingError as e:
+        print(f"\nERROR: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

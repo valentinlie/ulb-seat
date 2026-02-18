@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% set active_page = "jobs" %}
+
+{% block title %}{{ "Edit" if job else "New" }} Job - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>{{ "Edit" if job else "New" }} Job</h2>
+
+<form method="post" action="{{ '/jobs/' ~ job.id if job else '/jobs' }}">
+    <label for="name">Job Name
+        <input type="text" id="name" name="name" value="{{ job.name if job else '' }}" required placeholder="e.g. Morning seat Zentralbib">
+    </label>
+
+    <label for="library_id">Library
+        <select id="library_id" name="library_id" required>
+            {% for lid, lname in libraries.items()|sort %}
+            <option value="{{ lid }}" {{ "selected" if job and job.library_id == lid }}>{{ lname }}</option>
+            {% endfor %}
+        </select>
+    </label>
+
+    <label for="time_slot">Time Slot
+        <input type="text" id="time_slot" name="time_slot" value="{{ job.time_slot if job else '' }}" required placeholder="08:00-12:00">
+    </label>
+
+    <label for="preferred_section">Preferred section (optional)
+        <input type="text" id="preferred_section" name="preferred_section" value="{{ job.preferred_section if job and job.preferred_section else '' }}" placeholder="e.g. Hauptlesesaal">
+        <small>Keyword matched against the section heading (e.g. "Hauptlesesaal", "Westfalica"). If empty or no match, first available is used.</small>
+    </label>
+
+    <fieldset>
+        <label>
+            <input type="checkbox" name="group_room" value="true" {{ "checked" if job and job.group_room }}>
+            Group room (Arbeitskabine)
+        </label>
+    </fieldset>
+
+    <fieldset>
+        <legend>Job Type</legend>
+        <label>
+            <input type="radio" name="job_type" value="recurring" id="type-recurring"
+                   {{ "checked" if (not job) or (job and job.recurring) }}
+                   onchange="document.getElementById('recurring-fields').style.display=''; document.getElementById('oneshot-fields').style.display='none';">
+            Recurring
+        </label>
+        <label>
+            <input type="radio" name="job_type" value="oneshot" id="type-oneshot"
+                   {{ "checked" if job and not job.recurring }}
+                   onchange="document.getElementById('oneshot-fields').style.display=''; document.getElementById('recurring-fields').style.display='none';">
+            One-shot
+        </label>
+    </fieldset>
+
+    <div id="recurring-fields" style="{{ 'display:none' if job and not job.recurring else '' }}">
+        <label for="cron_days">Book for days (which days you want a seat)
+            <input type="text" id="cron_days" name="cron_days" value="{{ job.cron_days if job and job.cron_days else 'mon,tue,wed,thu,fri' }}" placeholder="mon,tue,wed,thu,fri">
+        </label>
+        <small>Comma-separated: mon,tue,wed,thu,fri,sat,sun</small>
+        <div class="grid">
+            <label for="date_offset">Days in advance (offset)
+                <input type="number" id="date_offset" name="date_offset" min="0" max="14" value="{{ job.date_offset if job and job.date_offset is not none else 2 }}">
+                <small>E.g. 3 = book 3 days ahead. The job triggers automatically on the right day.</small>
+            </label>
+            <label for="cron_hour">Trigger hour
+                <input type="number" id="cron_hour" name="cron_hour" min="0" max="23" value="{{ job.cron_hour if job and job.cron_hour is not none else 0 }}">
+            </label>
+            <label for="cron_minute">Trigger minute
+                <input type="number" id="cron_minute" name="cron_minute" min="0" max="59" value="{{ job.cron_minute if job and job.cron_minute is not none else 0 }}">
+            </label>
+        </div>
+    </div>
+
+    <div id="oneshot-fields" style="{{ '' if job and not job.recurring else 'display:none' }}">
+        <label for="target_date">Target Date (DD.MM.YYYY)
+            <input type="text" id="target_date" name="target_date" value="{{ job.target_date if job and job.target_date else '' }}" placeholder="19.02.2026">
+        </label>
+        <label for="run_at">Run At (ISO datetime, when to trigger the booking)
+            <input type="datetime-local" id="run_at" name="run_at" value="{{ job.run_at[:16] if job and job.run_at else '' }}">
+        </label>
+    </div>
+
+    <button type="submit">{{ "Update" if job else "Create" }} Job</button>
+    <a href="/jobs" role="button" class="secondary">Cancel</a>
+</form>
+{% endblock %}

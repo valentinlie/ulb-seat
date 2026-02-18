@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% set active_page = "dashboard" %}
+
+{% block title %}Dashboard - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>Dashboard</h2>
+
+<section>
+    <h3>Enabled Jobs ({{ jobs|length }})</h3>
+    {% if jobs %}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Library</th>
+                <th>Time Slot</th>
+                <th>Type</th>
+                <th>Schedule</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                <td><a href="/jobs/{{ job.id }}/edit">{{ job.name }}</a></td>
+                <td>{{ libraries.get(job.library_id, job.library_id) }}</td>
+                <td>{{ job.time_slot }}</td>
+                <td>{{ "Recurring" if job.recurring else "One-shot" }}</td>
+                <td>
+                    {% if job.recurring %}
+                        for {{ job.cron_days }} (+{{ job.date_offset }}d ahead), triggers {{ "%02d"|format(job.cron_hour) }}:{{ "%02d"|format(job.cron_minute) }}
+                    {% else %}
+                        {{ job.run_at or job.target_date }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No enabled jobs. <a href="/jobs/new">Create one</a>.</p>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Recent Bookings</h3>
+    <div hx-get="/partials/history" hx-trigger="every 30s" hx-swap="innerHTML">
+        {% include "partials/history_list.html" %}
+    </div>
+</section>
+{% endblock %}

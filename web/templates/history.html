@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% set active_page = "history" %}
+
+{% block title %}Booking History - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>Booking History</h2>
+
+<div hx-get="/partials/history" hx-trigger="every 30s" hx-swap="innerHTML">
+    {% include "partials/history_list.html" %}
+</div>
+{% endblock %}

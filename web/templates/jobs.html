@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% set active_page = "jobs" %}
+
+{% block title %}Jobs - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>Scheduled Jobs</h2>
+<p><a href="/jobs/new" role="button">New Job</a></p>
+
+<div id="job-list" hx-get="/partials/job-list" hx-trigger="every 30s" hx-swap="innerHTML">
+    {% include "partials/job_list.html" %}
+</div>
+{% endblock %}

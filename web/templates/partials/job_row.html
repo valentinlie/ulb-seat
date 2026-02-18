@@ -1,0 +1,36 @@
+<tr id="job-row-{{ job.id }}">
+    <td>{{ job.id }}</td>
+    <td><a href="/jobs/{{ job.id }}/edit">{{ job.name }}</a></td>
+    <td>{{ libraries.get(job.library_id, job.library_id) }}</td>
+    <td>{{ job.time_slot }}{% if job.group_room %} (Group){% endif %}</td>
+    <td>
+        {% if job.recurring %}
+            for {{ job.cron_days }} (+{{ job.date_offset }}d) at {{ "%02d"|format(job.cron_hour) }}:{{ "%02d"|format(job.cron_minute) }}
+        {% else %}
+            {{ job.target_date }}{% if job.run_at %} @ {{ job.run_at[:16] }}{% endif %}
+        {% endif %}
+    </td>
+    <td>
+        {% if job.enabled %}
+            <span class="badge badge-enabled">Enabled</span>
+        {% else %}
+            <span class="badge badge-disabled">Disabled</span>
+        {% endif %}
+    </td>
+    <td class="actions">
+        <button hx-post="/jobs/{{ job.id }}/toggle" hx-target="#job-row-{{ job.id }}" hx-swap="outerHTML"
+                class="outline {% if job.enabled %}secondary{% endif %}">
+            {{ "Disable" if job.enabled else "Enable" }}
+        </button>
+        <button hx-post="/jobs/{{ job.id }}/run" hx-target="#run-result-{{ job.id }}" hx-swap="innerHTML"
+                class="outline" hx-indicator="#spinner-{{ job.id }}">
+            Run Now <span id="spinner-{{ job.id }}" class="htmx-indicator" aria-busy="true"></span>
+        </button>
+        <button hx-post="/jobs/{{ job.id }}/delete" hx-target="#job-row-{{ job.id }}" hx-swap="outerHTML"
+                hx-confirm="Delete job '{{ job.name }}'?"
+                class="outline secondary">
+            Delete
+        </button>
+        <span id="run-result-{{ job.id }}"></span>
+    </td>
+</tr>

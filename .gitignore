@@ -10,4 +10,4 @@ wheels/
 .venv
 
 # Credentials
-src/config.py
+config.py

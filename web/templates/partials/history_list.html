@@ -1,0 +1,32 @@
+{% if bookings %}
+<table>
+    <thead>
+        <tr>
+            <th>Time</th>
+            <th>Job</th>
+            <th>Library</th>
+            <th>Date</th>
+            <th>Time Slot</th>
+            <th>Status</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for b in bookings %}
+        <tr>
+            <td>{{ b.started_at[:16] | replace("T", " ") }}</td>
+            <td>{{ b.job_name or "Manual" }}{% if b.manual %} (manual){% endif %}</td>
+            <td>{{ libraries.get(b.library_id, b.library_id) }}</td>
+            <td>{{ b.target_date }}</td>
+            <td>{{ b.time_slot }}</td>
+            <td>
+                <span class="badge badge-{{ b.status }}">{{ b.status }}</span>
+            </td>
+            <td>{{ b.seat_desc or "" }} {{ b.message or "" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No bookings yet.</p>
+{% endif %}
