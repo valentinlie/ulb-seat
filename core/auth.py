@@ -44,8 +44,17 @@ def handle_captcha(session: requests.Session, html: str) -> None:
         # Extract captcha image (base64 inline JPEG)
         m = re.search(r"data:image/jpeg;base64,([^'\"]+)", html)
         if not m:
-            # No captcha on page — might already be registered
-            if "Schnellübersicht" in html or "Neue Platzreservierung starten" in html:
+            # No captcha on page — already registered, just need to start a new reservation
+            if "Neue Platzreservierung starten" in html:
+                start_link = re.search(r'href="([^"]*)"[^>]*>Neue Platzreservierung starten', html)
+                if start_link:
+                    log.info("  Already registered, starting new reservation...")
+                    new_resp = session.get(urljoin(BASE_URL, start_link.group(1)))
+                    html = new_resp.text
+                    continue  # new page likely has a captcha — solve it
+                log.info("  Already registered, no start link found.")
+                return
+            if "Schnellübersicht" in html:
                 log.info("  Already registered, no captcha needed.")
                 return
             raise BookingError("Could not find captcha image.")
@@ -88,8 +97,17 @@ def handle_captcha(session: requests.Session, html: str) -> None:
                 session.get(urljoin(BASE_URL, weiter.group(1)))
             return
 
-        if "Schnellübersicht" in resp.text or "Neue Platzreservierung starten" in resp.text:
-            log.info("  Captcha accepted (already registered).")
+        if "Neue Platzreservierung starten" in resp.text:
+            start_link = re.search(r'href="([^"]*)"[^>]*>Neue Platzreservierung starten', resp.text)
+            if start_link:
+                log.info("  Already registered, starting new reservation...")
+                new_resp = session.get(urljoin(BASE_URL, start_link.group(1)))
+                html = new_resp.text
+                continue  # new page likely has a captcha — solve it
+            log.info("  Already registered, no start link found.")
+            return
+        if "Schnellübersicht" in resp.text:
+            log.info("  Already registered, no captcha needed.")
             return
 
         log.info("  Captcha rejected, retrying...")
