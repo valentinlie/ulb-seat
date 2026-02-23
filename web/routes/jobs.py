@@ -29,6 +29,18 @@ def job_new(request: Request, _user: str = Depends(require_auth)):
     return templates.TemplateResponse("job_form.html", ctx(request, job=None))
 
 
+def _build_run_at(run_date: str, run_hour: int, run_minute: int) -> str | None:
+    """Build ISO datetime from DD.MM.YYYY date string + hour/minute."""
+    if not run_date:
+        return None
+    try:
+        dt = datetime.strptime(run_date, "%d.%m.%Y")
+        dt = dt.replace(hour=run_hour, minute=run_minute)
+        return dt.isoformat()
+    except ValueError:
+        return None
+
+
 @router.post("/jobs", response_class=HTMLResponse)
 def job_create(
     request: Request,
@@ -42,11 +54,14 @@ def job_create(
     date_offset: int = Form(None),
     cron_hour: int = Form(0),
     cron_minute: int = Form(0),
-    run_at: str = Form(""),
+    run_date: str = Form(""),
+    run_hour: int = Form(0),
+    run_minute: int = Form(0),
     target_date: str = Form(""),
     _user: str = Depends(require_auth),
 ):
     recurring = job_type == "recurring"
+    run_at = _build_run_at(run_date, run_hour, run_minute) if not recurring else None
     data = {
         "name": name,
         "library_id": library_id,
@@ -58,7 +73,7 @@ def job_create(
         "date_offset": date_offset if recurring else None,
         "cron_hour": cron_hour if recurring else None,
         "cron_minute": cron_minute if recurring else None,
-        "run_at": run_at if not recurring and run_at else None,
+        "run_at": run_at,
         "target_date": target_date if not recurring else None,
         "enabled": True,
     }
@@ -73,6 +88,18 @@ def job_edit(request: Request, job_id: int, _user: str = Depends(require_auth)):
     job = db.get_job(job_id)
     if not job:
         return RedirectResponse(url="/jobs", status_code=303)
+    # Parse run_at ISO string into separate fields for the form
+    job = dict(job)
+    if job.get("run_at"):
+        try:
+            dt = datetime.fromisoformat(job["run_at"])
+            job["run_date"] = dt.strftime("%d.%m.%Y")
+            job["run_hour"] = dt.hour
+            job["run_minute"] = dt.minute
+        except ValueError:
+            job["run_date"] = ""
+            job["run_hour"] = 0
+            job["run_minute"] = 0
     return templates.TemplateResponse("job_form.html", ctx(request, job=job))
 
 
@@ -90,11 +117,14 @@ def job_update(
     date_offset: int = Form(None),
     cron_hour: int = Form(0),
     cron_minute: int = Form(0),
-    run_at: str = Form(""),
+    run_date: str = Form(""),
+    run_hour: int = Form(0),
+    run_minute: int = Form(0),
     target_date: str = Form(""),
     _user: str = Depends(require_auth),
 ):
     recurring = job_type == "recurring"
+    run_at = _build_run_at(run_date, run_hour, run_minute) if not recurring else None
     data = {
         "name": name,
         "library_id": library_id,
@@ -106,7 +136,7 @@ def job_update(
         "date_offset": date_offset if recurring else None,
         "cron_hour": cron_hour if recurring else None,
         "cron_minute": cron_minute if recurring else None,
-        "run_at": run_at if not recurring and run_at else None,
+        "run_at": run_at,
         "target_date": target_date if not recurring else None,
         "enabled": True,
     }

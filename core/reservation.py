@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from config import BASE_URL, GROUP_ROOM_SECTION_KEYWORD, PREFERRED_GROUP_ROOMS, PREFERRED_SEATS
+from config import BASE_URL, PREFERRED_GROUP_ROOMS, PREFERRED_SEATS
 from core.exceptions import BookingError
 
 log = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def find_timeslot(
         # Filter by section type (group room vs individual)
         section_h2 = row.find_previous("h2")
         section = section_h2.get_text().strip() if section_h2 else ""
-        is_group_section = GROUP_ROOM_SECTION_KEYWORD.lower() in section.lower()
+        is_group_section = "Gruppen".lower() in section.lower()
         if group_room != is_group_section:
             continue
 

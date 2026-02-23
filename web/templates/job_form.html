@@ -73,10 +73,20 @@
     <div id="oneshot-fields" style="{{ '' if job and not job.recurring else 'display:none' }}">
         <label for="target_date">Target Date (DD.MM.YYYY)
             <input type="text" id="target_date" name="target_date" value="{{ job.target_date if job and job.target_date else '' }}" placeholder="19.02.2026">
+            <small>The date you want the seat/room for.</small>
         </label>
-        <label for="run_at">Run At (ISO datetime, when to trigger the booking)
-            <input type="datetime-local" id="run_at" name="run_at" value="{{ job.run_at[:16] if job and job.run_at else '' }}">
+        <label for="run_date">Trigger Date (DD.MM.YYYY)
+            <input type="text" id="run_date" name="run_date" value="{{ job.run_date if job and job.run_date else '' }}" placeholder="17.02.2026">
+            <small>When the bot should attempt the booking.</small>
         </label>
+        <div class="grid">
+            <label for="run_hour">Trigger hour
+                <input type="number" id="run_hour" name="run_hour" min="0" max="23" value="{{ job.run_hour if job and job.run_hour is not none else 0 }}">
+            </label>
+            <label for="run_minute">Trigger minute
+                <input type="number" id="run_minute" name="run_minute" min="0" max="59" value="{{ job.run_minute if job and job.run_minute is not none else 0 }}">
+            </label>
+        </div>
     </div>
 
     <button type="submit">{{ "Update" if job else "Create" }} Job</button>
