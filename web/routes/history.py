@@ -12,5 +12,5 @@ router = APIRouter()
 
 @router.get("/history", response_class=HTMLResponse)
 def history(request: Request, _user: str = Depends(require_auth)):
-    bookings = db.get_recent_bookings(limit=100)
+    bookings = db.get_recent_bookings(limit=20)
     return templates.TemplateResponse("history.html", ctx(request, bookings=bookings))

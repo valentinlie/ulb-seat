@@ -18,5 +18,5 @@ def partial_job_list(request: Request, _user: str = Depends(require_auth)):
 
 @router.get("/partials/history", response_class=HTMLResponse)
 def partial_history(request: Request, _user: str = Depends(require_auth)):
-    bookings = db.get_recent_bookings(limit=20)
+    bookings = db.get_recent_bookings(limit=5)
     return templates.TemplateResponse("partials/history_list.html", ctx(request, bookings=bookings))
