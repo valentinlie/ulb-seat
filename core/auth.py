@@ -30,7 +30,7 @@ def login(session: requests.Session) -> str:
         },
         allow_redirects=True,
     )
-    if "Sie sind angemeldet als" not in resp.text:
+    if "Ihr Login:" not in resp.text:
         raise BookingError("Login failed. Check credentials.")
     log.info("  Logged in successfully.")
     return resp.text
