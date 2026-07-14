@@ -7,7 +7,7 @@
         {% if job.recurring %}
             for {{ job.cron_days }} (+{{ job.date_offset }}d) at {{ "%02d"|format(job.cron_hour) }}:{{ "%02d"|format(job.cron_minute) }}
         {% else %}
-            {{ job.target_date }}{% if job.run_at %} @ {{ job.run_at[:16] }}{% endif %}
+            {% if job.target_date %}{{ job.target_date.strftime("%d.%m.%Y") }}{% endif %}{% if job.run_at %} @ {{ job.run_at.strftime("%d.%m.%Y %H:%M") }}{% endif %}
         {% endif %}
     </td>
     <td>

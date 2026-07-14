@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from core import db
 from core import scheduler as sched
 from web.routes import router
 
@@ -16,6 +17,7 @@ async def lifespan(app: FastAPI):
     sched.start()
     yield
     sched.shutdown()
+    db.close_pool()
 
 
 app = FastAPI(title="ULB Seat Reservation", lifespan=lifespan)

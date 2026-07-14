@@ -30,7 +30,7 @@
                     {% if job.recurring %}
                         for {{ job.cron_days }} (+{{ job.date_offset }}d ahead), triggers {{ "%02d"|format(job.cron_hour) }}:{{ "%02d"|format(job.cron_minute) }}
                     {% else %}
-                        {{ job.run_at or job.target_date }}
+                        {% if job.run_at %}{{ job.run_at.strftime("%d.%m.%Y %H:%M") }}{% elif job.target_date %}{{ job.target_date.strftime("%d.%m.%Y") }}{% endif %}
                     {% endif %}
                 </td>
             </tr>
@@ -44,8 +44,6 @@
 
 <section>
     <h3>Recent Bookings</h3>
-    <div hx-get="/partials/history" hx-trigger="every 30s" hx-swap="innerHTML">
-        {% include "partials/history_list.html" %}
-    </div>
+    {% include "partials/history_list.html" %}
 </section>
 {% endblock %}

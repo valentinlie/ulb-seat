@@ -93,6 +93,10 @@ DB_PASS = "your_db_password"
 # ── Dashboard credentials (HTTP Basic Auth) ──────────────────────────────────
 DASHBOARD_USER = "admin"
 DASHBOARD_PASS = "change_me"
+
+# ── Web server ───────────────────────────────────────────────────────────────
+HOST = "0.0.0.0"
+PORT = 8000
 ```
 
 ## Usage
@@ -102,7 +106,9 @@ DASHBOARD_PASS = "change_me"
 Start the server:
 
 ```bash
-uvicorn web.app:app --host 0.0.0.0 --port 8000
+uv run src/main.py
+# or, directly:
+uv run uvicorn web.app:app --app-dir src
 ```
 
 Open `http://localhost:8000` and log in with your `DASHBOARD_USER` / `DASHBOARD_PASS` credentials.
@@ -135,44 +141,50 @@ For quick one-off bookings without the web interface:
 
 ```bash
 # Book a seat 3 days from now, morning slot
-python cli.py --date-offset 3 --time "08:00-12:00"
+uv run src/cli.py --date-offset 3 --time "08:00-12:00"
 
 # Book at a specific library on a specific date
-python cli.py --library 22 --date "20.03.2026" --time "12:00-16:00"
+uv run src/cli.py --library 22 --date "20.03.2026" --time "12:00-16:00"
 
 # Book a group room
-python cli.py --date-offset 2 --time "08:00-12:00" --group-room
+uv run src/cli.py --date-offset 2 --time "08:00-12:00" --group-room
 
 # Prefer a specific section
-python cli.py --date-offset 3 --time "08:00-12:00" --section "Hauptlesesaal"
+uv run src/cli.py --date-offset 3 --time "08:00-12:00" --section "Hauptlesesaal"
 ```
 
-Available libraries are listed with `python cli.py --help`.
+Available libraries are listed with `uv run src/cli.py --help`.
 
 ## Project structure
 
 ```
 ulb-seat/
-├── cli.py                  # CLI entry point
-├── config.py               # Credentials and settings (git-ignored)
+├── config.py                   # Credentials and settings (git-ignored)
 ├── pyproject.toml
 │
-├── core/
-│   ├── auth.py             # SSO login and captcha flow
-│   ├── booking.py          # Booking orchestration
-│   ├── captcha.py          # Tesseract OCR captcha solver
-│   ├── db.py               # PostgreSQL access (jobs + booking log)
-│   ├── exceptions.py       # BookingError
-│   ├── reservation.py      # Timeslot search, seat selection, reservation
-│   └── scheduler.py        # APScheduler job management
-│
-└── web/
-    ├── app.py              # FastAPI app with scheduler lifespan
-    ├── auth.py             # HTTP Basic Auth
-    ├── routes/
-    │   ├── dashboard.py    # GET /
-    │   ├── jobs.py         # Job CRUD + manual run
-    │   ├── history.py      # GET /history
-    │   └── partials.py     # HTMX partial updates
-    └── templates/          # Jinja2 templates (Pico CSS + HTMX)
+└── src/
+    ├── main.py                 # Web entry point (uvicorn)
+    ├── cli.py                  # CLI entry point
+    │
+    ├── core/
+    │   ├── auth.py             # SSO login and captcha flow
+    │   ├── booking.py          # Booking orchestration
+    │   ├── captcha.py          # Tesseract OCR captcha solver
+    │   ├── db.py               # PostgreSQL access (jobs + booking log)
+    │   ├── exceptions.py       # BookingError
+    │   ├── reservation.py      # Timeslot search, seat selection, reservation
+    │   └── scheduler.py        # APScheduler job management
+    │
+    └── web/
+        ├── app.py              # FastAPI app with scheduler lifespan
+        ├── auth.py             # HTTP Basic Auth
+        ├── routes/
+        │   ├── dashboard.py    # GET /
+        │   ├── jobs.py         # Job CRUD + manual run
+        │   ├── history.py      # GET /history
+        │   └── partials.py     # HTMX partial updates
+        └── templates/          # Jinja2 templates (Pico CSS + HTMX)
 ```
+
+`config.py` stays in the project root (outside the `src/` import root); `main.py` and
+`cli.py` put the root on `sys.path` so `from config import ...` resolves.

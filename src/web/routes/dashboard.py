@@ -14,7 +14,7 @@ router = APIRouter()
 def dashboard(request: Request, _user: str = Depends(require_auth)):
     jobs = db.get_all_jobs()
     bookings = db.get_recent_bookings(limit=5)
-    upcoming = [j for j in jobs if j["enabled"]]
+    upcoming = [j for j in jobs if j.enabled]
     return templates.TemplateResponse("dashboard.html", ctx(
         request, jobs=upcoming, bookings=bookings,
     ))

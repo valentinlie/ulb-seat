@@ -1,7 +1,7 @@
 """APScheduler integration for scheduled bookings."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -43,92 +43,92 @@ def run_booking_job(job_id: int) -> None:
     if not job:
         log.error("Job %d not found, skipping.", job_id)
         return
-    if not job["enabled"]:
+    if not job.enabled:
         log.info("Job %d is disabled, skipping.", job_id)
         return
 
     # Determine target date
-    if job["recurring"] and job["date_offset"] is not None:
-        target_date = (datetime.now() + timedelta(days=job["date_offset"])).strftime("%d.%m.%Y")
-    elif job["target_date"]:
-        target_date = job["target_date"]
+    if job.recurring and job.date_offset is not None:
+        target_date = date.today() + timedelta(days=job.date_offset)
+    elif job.target_date:
+        target_date = job.target_date
     else:
         log.error("Job %d has no target date configured.", job_id)
         return
 
     log_id = db.log_booking_start(
         job_id=job_id,
-        job_name=job["name"],
-        library_id=job["library_id"],
+        job_name=job.name,
+        library_id=job.library_id,
         target_date=target_date,
-        time_slot=job["time_slot"],
-        group_room=bool(job["group_room"]),
+        time_slot=job.time_slot,
+        group_room=job.group_room,
     )
 
     try:
         result = execute_booking(
-            library_id=job["library_id"],
-            date=target_date,
-            time_slot=job["time_slot"],
-            group_room=bool(job["group_room"]),
-            preferred_section=job.get("preferred_section") or "",
+            library_id=job.library_id,
+            date=target_date.strftime("%d.%m.%Y"),
+            time_slot=job.time_slot,
+            group_room=job.group_room,
+            preferred_section=job.preferred_section or "",
         )
         db.log_booking_finish(log_id, "success", result.get("seat_desc"), result.get("message"))
-        log.info("Job %d (%s) succeeded: %s", job_id, job["name"], result.get("message"))
+        log.info("Job %d (%s) succeeded: %s", job_id, job.name, result.get("message"))
     except BookingError as e:
         db.log_booking_finish(log_id, "failed", message=str(e))
-        log.warning("Job %d (%s) failed: %s", job_id, job["name"], e)
+        log.warning("Job %d (%s) failed: %s", job_id, job.name, e)
     except Exception as e:
         db.log_booking_finish(log_id, "error", message=str(e))
-        log.exception("Job %d (%s) error:", job_id, job["name"])
+        log.exception("Job %d (%s) error:", job_id, job.name)
 
     # Auto-disable one-shot jobs after execution
-    if not job["recurring"]:
+    if not job.recurring:
         db.disable_job(job_id)
         remove_job_from_scheduler(job_id)
 
 
-def schedule_job(job: dict) -> None:
+def schedule_job(job: db.Job) -> None:
     """Register a job with APScheduler."""
-    job_apid = f"job_{job['id']}"
+    job_apid = f"job_{job.id}"
 
     # Remove existing schedule if any
     if scheduler.get_job(job_apid):
         scheduler.remove_job(job_apid)
 
-    if not job["enabled"]:
+    if not job.enabled:
         return
 
-    if job["recurring"]:
-        target_days = job.get("cron_days", "mon,tue,wed,thu,fri")
-        offset = job.get("date_offset", 2) or 0
+    if job.recurring:
+        target_days = job.cron_days or "mon,tue,wed,thu,fri"
+        offset = job.date_offset or 0
         trigger_days = _target_days_to_trigger_days(target_days, offset)
         log.info("Job %d: target days=%s, offset=%d → trigger days=%s",
-                 job["id"], target_days, offset, trigger_days)
+                 job.id, target_days, offset, trigger_days)
         trigger = CronTrigger(
             day_of_week=trigger_days,
-            hour=job.get("cron_hour", 0),
-            minute=job.get("cron_minute", 0),
+            hour=job.cron_hour or 0,
+            minute=job.cron_minute or 0,
             timezone="Europe/Berlin",
         )
     else:
-        if not job.get("run_at"):
-            log.warning("One-shot job %d has no run_at, skipping.", job["id"])
+        if not job.run_at:
+            log.warning("One-shot job %d has no run_at, skipping.", job.id)
             return
         trigger = DateTrigger(
-            run_date=datetime.fromisoformat(job["run_at"]),
+            run_date=job.run_at,
             timezone="Europe/Berlin",
         )
 
     scheduler.add_job(
         run_booking_job,
         trigger=trigger,
-        args=[job["id"]],
+        args=[job.id],
         id=job_apid,
-        name=job["name"],
+        name=job.name,
         replace_existing=True,
     )
-    log.info("Scheduled job %d (%s): %s", job["id"], job["name"], trigger)
+    log.info("Scheduled job %d (%s): %s", job.id, job.name, trigger)
 
 
 def remove_job_from_scheduler(job_id: int) -> None:

@@ -14,10 +14,10 @@
     <tbody>
         {% for b in bookings %}
         <tr>
-            <td>{{ b.started_at[:16] | replace("T", " ") }}</td>
+            <td>{{ b.started_at.strftime("%d.%m.%Y %H:%M") }}</td>
             <td>{{ b.job_name or "Manual" }}{% if b.manual %} (manual){% endif %}</td>
             <td>{{ libraries.get(b.library_id, b.library_id) }}</td>
-            <td>{{ b.target_date }}</td>
+            <td>{{ b.target_date.strftime("%d.%m.%Y") }}</td>
             <td>{{ b.time_slot }}</td>
             <td>
                 <span class="badge badge-{{ b.status }}">{{ b.status }}</span>

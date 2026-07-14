@@ -4,7 +4,7 @@
 import argparse
 import logging
 import sys
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 
 from config import LIBRARIES
 from core.exceptions import BookingError
@@ -55,7 +55,7 @@ def main():
     args = parser.parse_args()
 
     if args.date_offset is not None:
-        args.date = (datetime.now() + timedelta(days=args.date_offset)).strftime("%d.%m.%Y")
+        args.date = (date.today() + timedelta(days=args.date_offset)).strftime("%d.%m.%Y")
 
     if args.library not in LIBRARIES:
         print(f"ERROR: Unknown library ID {args.library}.")
