@@ -63,8 +63,8 @@ def handle_captcha(session: requests.Session, html: str) -> None:
         captcha_text = solve_captcha(image_bytes)
         log.info("  Attempt %d: recognized '%s'", attempt, captcha_text)
 
-        if not captcha_text or len(captcha_text) < 4:
-            log.info("  OCR result too short, retrying...")
+        if len(captcha_text) != 6:
+            log.info("  OCR result has wrong length, retrying...")
             # Re-fetch the page for a new captcha
             html = session.get(BASE_URL).text
             continue
@@ -97,6 +97,16 @@ def handle_captcha(session: requests.Session, html: str) -> None:
                 session.get(urljoin(BASE_URL, weiter.group(1)))
             return
 
+        # Check for an explicit captcha rejection BEFORE the already-registered
+        # checks: the rejection page also contains a "Neue Platzreservierung
+        # starten" link, which previously masked wrong captchas as "already
+        # registered" and looped without ever reporting the real problem.
+        if "Captcha-Code ist falsch" in resp.text:
+            log.info("  Captcha rejected, retrying...")
+            # The rejection page already contains a fresh captcha + form
+            html = resp.text
+            continue
+
         if "Neue Platzreservierung starten" in resp.text:
             start_link = re.search(r'href="([^"]*)"[^>]*>Neue Platzreservierung starten', resp.text)
             if start_link:
@@ -110,7 +120,7 @@ def handle_captcha(session: requests.Session, html: str) -> None:
             log.info("  Already registered, no captcha needed.")
             return
 
-        log.info("  Captcha rejected, retrying...")
+        log.info("  Unexpected response after captcha submit, retrying...")
         # Re-fetch for new captcha
         resp = session.get(BASE_URL)
         html = resp.text
