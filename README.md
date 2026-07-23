@@ -137,23 +137,57 @@ Example: to always have a seat on weekday mornings, set days to `mon,tue,wed,thu
 
 ### CLI
 
-For quick one-off bookings without the web interface:
+The `ulb` CLI (`uv run python src/cli.py <command>`) has three command groups:
+booking, the web UI, and service management. For quick one-off bookings without
+the web interface, use `book`:
 
 ```bash
 # Book a seat 3 days from now, morning slot
-uv run src/cli.py --date-offset 3 --time "08:00-12:00"
+uv run python src/cli.py book --date-offset 3 --time "08:00-12:00"
 
 # Book at a specific library on a specific date
-uv run src/cli.py --library 22 --date "20.03.2026" --time "12:00-16:00"
+uv run python src/cli.py book --library 22 --date "20.03.2026" --time "12:00-16:00"
 
 # Book a group room
-uv run src/cli.py --date-offset 2 --time "08:00-12:00" --group-room
+uv run python src/cli.py book --date-offset 2 --time "08:00-12:00" --group-room
 
 # Prefer a specific section
-uv run src/cli.py --date-offset 3 --time "08:00-12:00" --section "Hauptlesesaal"
+uv run python src/cli.py book --date-offset 3 --time "08:00-12:00" --section "Hauptlesesaal"
 ```
 
-Available libraries are listed with `uv run src/cli.py --help`.
+Other commands: `jobs` (list saved jobs), `run-job <id>` (fire a saved job — the
+timer uses this), and the service commands below. Available libraries are listed
+with `uv run python src/cli.py book --help`.
+
+## Deployment (systemd, scale-to-zero)
+
+Scheduling and serving are handled by **systemd --user units**, so nothing of
+ours stays resident when idle:
+
+- each enabled job becomes a `ulb-book@<id>.timer` that fires a short-lived
+  worker at booking time (`OnCalendar` computed from the job's schedule);
+- the dashboard is **socket-activated** — `ulb-web.socket` starts the web app on
+  the first request, and the app shuts itself down again after 10 min idle
+  (`ULB_WEB_IDLE_TIMEOUT` seconds).
+
+```bash
+uv run python src/cli.py install   # write the units + a timer per saved job
+uv run python src/cli.py enable     # enable + start the web socket
+uv run python src/cli.py status     # list job timers + web-UI status
+uv run python src/cli.py logs -f    # tail worker + web logs
+```
+
+Creating, editing, toggling, or deleting a job through the dashboard (or a
+`run-job` on a one-shot) re-syncs its timer automatically. Run `sync` after
+pulling code changes to rewrite the units. The units run `uv run` from the repo
+directory, so keep the checkout in place.
+
+> **Enable lingering** so timers fire even when you are not logged in — bookings
+> at 00:01 depend on it:
+>
+> ```bash
+> sudo loginctl enable-linger "$USER"
+> ```
 
 ## Project structure
 
@@ -173,10 +207,11 @@ ulb-seat/
     │   ├── db.py               # PostgreSQL access (jobs + booking log)
     │   ├── exceptions.py       # BookingError
     │   ├── reservation.py      # Timeslot search, seat selection, reservation
-    │   └── scheduler.py        # APScheduler job management
+    │   ├── worker.py           # Execute one scheduled job, then exit
+    │   └── systemd.py          # Generate per-job timers + web units
     │
     └── web/
-        ├── app.py              # FastAPI app with scheduler lifespan
+        ├── app.py              # FastAPI app (socket-activated, idle-shutdown)
         ├── auth.py             # HTTP Basic Auth
         ├── routes/
         │   ├── dashboard.py    # GET /

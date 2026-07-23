@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core import db
-from core import scheduler as sched
+from core import systemd
 from core.booking import execute_booking
 from core.exceptions import BookingError
 from web import templates, ctx
@@ -95,7 +95,7 @@ class JobForm:
 def job_create(request: Request, form: JobForm = Depends(),
                _user: str = Depends(require_auth)):
     job_id = db.create_job({**form.data, "enabled": True})
-    sched.schedule_job(db.get_job(job_id))
+    systemd.sync_job_timer(db.get_job(job_id))
     return RedirectResponse(url="/jobs", status_code=303)
 
 
@@ -119,13 +119,13 @@ def job_update(request: Request, job_id: int, form: JobForm = Depends(),
     if not existing:
         return RedirectResponse(url="/jobs", status_code=303)
     db.update_job(job_id, {**form.data, "enabled": existing.enabled})
-    sched.schedule_job(db.get_job(job_id))
+    systemd.sync_job_timer(db.get_job(job_id))
     return RedirectResponse(url="/jobs", status_code=303)
 
 
 @router.post("/jobs/{job_id}/delete", response_class=HTMLResponse)
 def job_delete(request: Request, job_id: int, _user: str = Depends(require_auth)):
-    sched.remove_job_from_scheduler(job_id)
+    systemd.remove_job_timer(job_id)
     db.delete_job(job_id)
     # Return empty string so HTMX removes the row
     return HTMLResponse("")
@@ -137,9 +137,9 @@ def job_toggle(request: Request, job_id: int, _user: str = Depends(require_auth)
     job = db.get_job(job_id)
     if job:
         if new_state:
-            sched.schedule_job(job)
+            systemd.sync_job_timer(job)
         else:
-            sched.remove_job_from_scheduler(job_id)
+            systemd.remove_job_timer(job_id)
     return templates.TemplateResponse("partials/job_row.html", ctx(request, job=job))
 
 

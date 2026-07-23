@@ -1,9 +1,12 @@
 """SSO authentication and captcha form handling."""
 
 import base64
+import json
 import logging
+import os
 import re
 import time
+from pathlib import Path
 from urllib.parse import urljoin
 
 import requests
@@ -14,12 +17,69 @@ from core.exceptions import BookingError
 
 log = logging.getLogger(__name__)
 
+# Cache the SSO session cookies between runs so back-to-back bookings (each a
+# fresh process) reuse one login instead of re-authenticating every time. There
+# is no token expiry to check — a stale session just fails the logged-in check
+# below and we log in fresh.
+SESSION_CACHE = Path(
+    os.environ.get("ULB_SESSION_CACHE", str(Path.home() / ".cache" / "ulb-seat" / "cookies.json"))
+)
+_LOGGED_IN_MARKER = "Ihr Login:"
+
+
+def _load_cookies(session: requests.Session) -> bool:
+    """Restore cached cookies into ``session``. True if any were loaded."""
+    try:
+        data = json.loads(SESSION_CACHE.read_text())
+    except (OSError, ValueError):
+        return False
+    if data.get("username") != SSO_USERNAME:
+        return False
+    cookies = data.get("cookies") or []
+    for c in cookies:
+        session.cookies.set_cookie(requests.cookies.create_cookie(
+            name=c["name"], value=c["value"], domain=c.get("domain", ""),
+            path=c.get("path", "/"), expires=c.get("expires"), secure=c.get("secure", False),
+        ))
+    return bool(cookies)
+
+
+def _save_cookies(session: requests.Session) -> None:
+    try:
+        SESSION_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        data = [
+            {"name": c.name, "value": c.value, "domain": c.domain,
+             "path": c.path, "expires": c.expires, "secure": c.secure}
+            for c in session.cookies
+        ]
+        tmp = SESSION_CACHE.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"username": SSO_USERNAME, "cookies": data}))
+        os.chmod(tmp, 0o600)  # session cookies are credentials
+        os.replace(tmp, SESSION_CACHE)
+    except OSError as exc:
+        log.warning("Could not cache session: %s", exc)
+
 
 def login(session: requests.Session) -> str:
-    """Log in via SSO. Returns the HTML of the reservation page after login."""
+    """Log in via SSO. Returns the HTML of the reservation page after login.
+
+    Reuses cached cookies when the session is still valid, so repeated bookings
+    do not re-authenticate; falls back to a fresh credential POST otherwise.
+    """
     log.info("[1/6] Logging in via SSO...")
-    # GET login page to establish cookies
-    session.get(BASE_URL)
+
+    # Try a cached session first — one GET tells us if it is still logged in.
+    if _load_cookies(session):
+        resp = session.get(BASE_URL)
+        if _LOGGED_IN_MARKER in resp.text:
+            log.info("  Reusing cached SSO session.")
+            return resp.text
+        log.info("  Cached session no longer valid, logging in fresh.")
+        session.cookies.clear()
+    else:
+        # GET login page to establish cookies
+        session.get(BASE_URL)
+
     # POST credentials
     resp = session.post(
         BASE_URL,
@@ -30,8 +90,9 @@ def login(session: requests.Session) -> str:
         },
         allow_redirects=True,
     )
-    if "Ihr Login:" not in resp.text:
+    if _LOGGED_IN_MARKER not in resp.text:
         raise BookingError("Login failed. Check credentials.")
+    _save_cookies(session)
     log.info("  Logged in successfully.")
     return resp.text
 
