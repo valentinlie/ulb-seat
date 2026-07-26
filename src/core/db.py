@@ -44,6 +44,18 @@ class Job:
 
 
 @dataclass
+class Credential:
+    """A registered WebAuthn passkey. ``credential_id`` is base64url text."""
+    credential_id: str
+    public_key: bytes
+    sign_count: int
+    transports: str | None
+    label: str | None
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+@dataclass
 class Booking:
     id: int
     job_id: int | None
@@ -148,7 +160,85 @@ def init_db() -> None:
                 manual          BOOLEAN NOT NULL DEFAULT FALSE
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ulb_credentials (
+                credential_id   TEXT PRIMARY KEY,
+                public_key      BYTEA NOT NULL,
+                sign_count      BIGINT NOT NULL DEFAULT 0,
+                transports      VARCHAR(255),
+                label           VARCHAR(255),
+                created_at      TIMESTAMPTZ NOT NULL,
+                last_used_at    TIMESTAMPTZ
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ulb_consumed_tokens (
+                token_hash  TEXT PRIMARY KEY,
+                consumed_at TIMESTAMPTZ NOT NULL
+            )
+        """)
         _migrate_legacy_types(conn)
+
+
+# ── Spent enrolment tokens ───────────────────────────────────────────────────
+
+def token_consumed(token_hash: str) -> bool:
+    with _pool.connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM ulb_consumed_tokens WHERE token_hash = %s", (token_hash,)
+        ).fetchone()
+    return row is not None
+
+
+def consume_token(token_hash: str) -> None:
+    """Burn an enrolment token so the same link cannot be replayed."""
+    with _pool.connection() as conn:
+        conn.execute(
+            """INSERT INTO ulb_consumed_tokens (token_hash, consumed_at) VALUES (%s, %s)
+               ON CONFLICT (token_hash) DO NOTHING""",
+            (token_hash, _now()),
+        )
+
+
+# ── WebAuthn credentials ─────────────────────────────────────────────────────
+
+def get_credentials() -> list[Credential]:
+    with _pool.connection() as conn:
+        with conn.cursor(row_factory=class_row(Credential)) as cur:
+            cur.execute("SELECT * FROM ulb_credentials ORDER BY created_at")
+            return cur.fetchall()
+
+
+def get_credential(credential_id: str) -> Credential | None:
+    with _pool.connection() as conn:
+        with conn.cursor(row_factory=class_row(Credential)) as cur:
+            cur.execute("SELECT * FROM ulb_credentials WHERE credential_id = %s", (credential_id,))
+            return cur.fetchone()
+
+
+def add_credential(credential_id: str, public_key: bytes, sign_count: int,
+                   transports: str | None, label: str | None) -> None:
+    with _pool.connection() as conn:
+        conn.execute(
+            """INSERT INTO ulb_credentials
+               (credential_id, public_key, sign_count, transports, label, created_at)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (credential_id, public_key, sign_count, transports, label, _now()),
+        )
+
+
+def touch_credential(credential_id: str, sign_count: int) -> None:
+    """Record a successful login: bump the replay counter and the last-used stamp."""
+    with _pool.connection() as conn:
+        conn.execute(
+            "UPDATE ulb_credentials SET sign_count = %s, last_used_at = %s WHERE credential_id = %s",
+            (sign_count, _now(), credential_id),
+        )
+
+
+def delete_credential(credential_id: str) -> None:
+    with _pool.connection() as conn:
+        conn.execute("DELETE FROM ulb_credentials WHERE credential_id = %s", (credential_id,))
 
 
 # ── Jobs CRUD ────────────────────────────────────────────────────────────────

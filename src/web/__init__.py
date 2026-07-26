@@ -3,10 +3,17 @@ from pathlib import Path
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
-from config import LIBRARIES
+from config import AUTH_ENABLED, LIBRARIES
+from web.auth import is_authenticated
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
 def ctx(request: Request, **kwargs) -> dict:
-    return {"request": request, "libraries": LIBRARIES, **kwargs}
+    return {
+        "request": request,
+        "libraries": LIBRARIES,
+        "authenticated": is_authenticated(request),
+        "auth_enabled": AUTH_ENABLED,
+        **kwargs,
+    }

@@ -1,0 +1,63 @@
+<script>
+// The WebAuthn API speaks ArrayBuffers; our JSON speaks base64url. Convert at the edge.
+function b64urlToBuf(s) {
+    const b64 = (s + '='.repeat((4 - s.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+}
+
+function bufToB64url(buf) {
+    let s = '';
+    for (const byte of new Uint8Array(buf)) s += String.fromCharCode(byte);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function postJSON(url, body) {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body === undefined ? {} : body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.detail || `Request failed (${res.status})`);
+    return data;
+}
+
+function decodeCredentials(list) {
+    (list || []).forEach(c => { c.id = b64urlToBuf(c.id); });
+}
+
+// Both ceremonies return the credential in the same base64url-encoded shape the
+// server's parser expects.
+function encodeAttestation(cred) {
+    return {
+        id: cred.id,
+        rawId: bufToB64url(cred.rawId),
+        type: cred.type,
+        authenticatorAttachment: cred.authenticatorAttachment || undefined,
+        response: {
+            clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+            attestationObject: bufToB64url(cred.response.attestationObject),
+            transports: cred.response.getTransports ? cred.response.getTransports() : [],
+        },
+    };
+}
+
+function encodeAssertion(cred) {
+    return {
+        id: cred.id,
+        rawId: bufToB64url(cred.rawId),
+        type: cred.type,
+        authenticatorAttachment: cred.authenticatorAttachment || undefined,
+        response: {
+            clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+            authenticatorData: bufToB64url(cred.response.authenticatorData),
+            signature: bufToB64url(cred.response.signature),
+            userHandle: cred.response.userHandle ? bufToB64url(cred.response.userHandle) : null,
+        },
+    };
+}
+
+function webauthnSupported() {
+    return window.PublicKeyCredential !== undefined && window.isSecureContext;
+}
+</script>

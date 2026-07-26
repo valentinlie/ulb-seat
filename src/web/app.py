@@ -13,8 +13,11 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from starlette.middleware.sessions import SessionMiddleware
 
+from config import AUTH_ENABLED, SESSION_MAX_AGE, SESSION_SECRET
 from core import db
+from web.auth import NotAuthenticated, not_authenticated_handler
 from web.routes import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -35,8 +38,18 @@ async def _idle_watchdog(app: FastAPI) -> None:
             return
 
 
+def _warn_about_auth() -> None:
+    if not AUTH_ENABLED:
+        log.warning("AUTH_ENABLED is False — the dashboard is served with NO authentication. "
+                    "Only do this when it is unreachable from the network.")
+    elif SESSION_SECRET == "change_me":
+        log.warning("SESSION_SECRET is still the placeholder from config.py — anyone who knows "
+                    "it can forge a login cookie. Set it to a random value.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _warn_about_auth()
     db.init_db()
     app.state.last_request = time.monotonic()
     watchdog = asyncio.create_task(_idle_watchdog(app)) if IDLE_TIMEOUT > 0 else None
@@ -51,6 +64,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ULB Seat Reservation", lifespan=lifespan)
+
+# Holds the passkey challenge mid-ceremony and the logged-in flag afterwards.
+# https_only is safe here: WebAuthn only works on a secure origin anyway.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    max_age=SESSION_MAX_AGE,
+    same_site="lax",
+    https_only=True,
+)
+app.add_exception_handler(NotAuthenticated, not_authenticated_handler)
 
 
 @app.middleware("http")
