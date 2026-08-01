@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% set active_page = "accounts" %}
+
+{% block title %}{{ "Edit" if account else "Add" }} ULB account{% endblock %}
+
+{% block content %}
+<h2>{{ "Edit ULB account" if account else "Add ULB account" }}</h2>
+
+<form method="post" action="{{ '/accounts/' ~ account.id if account else '/accounts' }}">
+    <label for="label">
+        Label
+        <input type="text" id="label" name="label" required maxlength="100"
+               value="{{ account.label if account else '' }}"
+               placeholder="e.g. My university login">
+        <small>Only shown in this dashboard, to tell your accounts apart.</small>
+    </label>
+
+    <label for="sso_username">
+        SSO username
+        <input type="text" id="sso_username" name="sso_username" required
+               value="{{ account.sso_username if account else '' }}"
+               autocomplete="off">
+    </label>
+
+    <label for="sso_password">
+        SSO password
+        <input type="password" id="sso_password" name="sso_password"
+               {% if not account %}required{% endif %}
+               autocomplete="new-password"
+               placeholder="{{ 'leave blank to keep the current one' if account else '' }}">
+        <small>Stored encrypted; needed to log in to the reservation system.</small>
+    </label>
+
+    <label for="library_number">
+        Library card number
+        <input type="text" id="library_number" name="library_number" required
+               value="{{ account.library_number if account else '' }}"
+               placeholder="A12345678/X">
+    </label>
+
+    <button type="submit">{{ "Save" if account else "Add account" }}</button>
+    <a href="/accounts" role="button" class="secondary outline">Cancel</a>
+</form>
+
+{% if account %}
+<section>
+    <h3>Shared with</h3>
+    <p class="muted">
+        Everyone listed here can create jobs and see bookings for this account.
+    </p>
+    <table>
+        <tbody>
+            {% for member in members %}
+            <tr>
+                <td>
+                    {{ member.display_name }}
+                    {% if member.id == auth.user.id %}<small class="muted">(you)</small>{% endif %}
+                </td>
+                <td class="actions">
+                    {% if members|length > 1 %}
+                    <form method="post" action="/accounts/{{ account.id }}/members/{{ member.id }}/delete">
+                        <button type="submit" class="secondary outline">Remove</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if candidates %}
+    <form method="post" action="/accounts/{{ account.id }}/members">
+        <fieldset role="group">
+            <select name="user_id" aria-label="User to share with">
+                {% for user in candidates %}
+                <option value="{{ user.id }}">{{ user.display_name }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="secondary">Share</button>
+        </fieldset>
+    </form>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Danger zone</h3>
+    <form method="post" action="/accounts/{{ account.id }}/delete"
+          onsubmit="return confirm('Delete this account? Its jobs, timers and booking history go with it.')">
+        <button type="submit" class="secondary">Delete account</button>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

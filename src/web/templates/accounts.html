@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% set active_page = "accounts" %}
+
+{% block title %}ULB Accounts - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>ULB Accounts</h2>
+<p class="muted">
+    Each account is one university login with its own library card. Jobs and
+    booking history belong to an account, and an account can be shared.
+</p>
+
+{% if auth.accounts %}
+<table>
+    <thead>
+        <tr><th>Label</th><th>SSO user</th><th>Library card</th><th></th></tr>
+    </thead>
+    <tbody>
+        {% for account in auth.accounts %}
+        <tr>
+            <td>
+                <a href="/accounts/{{ account.id }}/edit">{{ account.label }}</a>
+                {% if auth.account and account.id == auth.account.id %}
+                <span class="badge badge-enabled">active</span>
+                {% endif %}
+            </td>
+            <td>{{ account.sso_username }}</td>
+            <td>{{ account.library_number }}</td>
+            <td class="actions">
+                <form method="post" action="/accounts/switch">
+                    <input type="hidden" name="account_id" value="{{ account.id }}">
+                    <button type="submit" class="secondary outline">Use</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>
+    You do not have a ULB account yet. Add the university login the bot should
+    book seats with.
+</p>
+{% endif %}
+
+<p><a href="/accounts/new" role="button">Add ULB account</a></p>
+{% endblock %}

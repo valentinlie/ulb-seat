@@ -1,0 +1,100 @@
+<script>
+// WebAuthn talks in ArrayBuffers but JSON only carries strings, so every
+// binary field is base64url on the wire and converted at the boundary.
+const b64uToBuf = (s) => {
+    const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(b64 + "===".slice((b64.length + 3) % 4));
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return bytes.buffer;
+};
+
+const bufToB64u = (buf) =>
+    btoa(String.fromCharCode(...new Uint8Array(buf)))
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+async function postJSON(url, body) {
+    const resp = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body || {}),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || "Something went wrong.");
+    return data;
+}
+
+function showError(message) {
+    const box = document.getElementById("passkey-error");
+    if (box) { box.textContent = message; box.hidden = false; }
+}
+
+/** Create a passkey: fetch options, run the browser ceremony, verify server-side. */
+async function createPasskey(optionsUrl, verifyUrl, startBody) {
+    const start = await postJSON(optionsUrl, startBody);
+    const options = start.options;
+    options.challenge = b64uToBuf(options.challenge);
+    options.user.id = b64uToBuf(options.user.id);
+    (options.excludeCredentials || []).forEach((c) => { c.id = b64uToBuf(c.id); });
+
+    const cred = await navigator.credentials.create({publicKey: options});
+    return postJSON(verifyUrl, {
+        ceremony: start.ceremony,
+        credential: {
+            id: cred.id,
+            rawId: bufToB64u(cred.rawId),
+            type: cred.type,
+            authenticatorAttachment: cred.authenticatorAttachment,
+            response: {
+                clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+                attestationObject: bufToB64u(cred.response.attestationObject),
+                transports: cred.response.getTransports ? cred.response.getTransports() : [],
+            },
+        },
+    });
+}
+
+/** Sign in with an existing passkey. No username: the passkey identifies you. */
+async function usePasskey(optionsUrl, verifyUrl) {
+    const start = await postJSON(optionsUrl, {});
+    const options = start.options;
+    options.challenge = b64uToBuf(options.challenge);
+    (options.allowCredentials || []).forEach((c) => { c.id = b64uToBuf(c.id); });
+
+    const cred = await navigator.credentials.get({publicKey: options});
+    return postJSON(verifyUrl, {
+        ceremony: start.ceremony,
+        credential: {
+            id: cred.id,
+            rawId: bufToB64u(cred.rawId),
+            type: cred.type,
+            authenticatorAttachment: cred.authenticatorAttachment,
+            response: {
+                clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+                authenticatorData: bufToB64u(cred.response.authenticatorData),
+                signature: bufToB64u(cred.response.signature),
+                userHandle: cred.response.userHandle ? bufToB64u(cred.response.userHandle) : null,
+            },
+        },
+    });
+}
+
+/** Wrap a ceremony with button state and error reporting. */
+async function runCeremony(button, ceremony) {
+    const label = button.textContent;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+        const result = await ceremony();
+        window.location.href = result.redirect || "/";
+    } catch (err) {
+        // A cancelled prompt is a normal user action, not an error worth shouting about.
+        if (err.name !== "NotAllowedError" && err.name !== "AbortError") {
+            showError(err.message || String(err));
+        }
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+        button.textContent = label;
+    }
+}
+</script>

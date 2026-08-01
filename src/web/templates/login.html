@@ -1,62 +1,30 @@
 {% extends "base.html" %}
-{% block title %}Sign in — ULB Seat Reservation{% endblock %}
+
+{% block title %}Sign in - ULB Reservation{% endblock %}
 
 {% block content %}
-<article style="max-width: 28rem; margin: 3rem auto;">
-    <hgroup>
-        <h2>Sign in</h2>
-        <p>Unlock the dashboard with your passkey.</p>
-    </hgroup>
+<article class="narrow">
+    <h2>Sign in</h2>
+    <p>Use the passkey on this device — no password needed.</p>
 
-    <div id="error" class="alert-error" style="display: none;"></div>
+    <div id="passkey-error" class="alert-error" role="alert" hidden></div>
 
-    {% if not has_credentials %}
-    <p class="alert-error">
-        No passkey is registered yet. Open <code>/passkeys?token=&lt;your token&gt;</code>
-        to enrol one — the token is REGISTRATION_TOKEN in config.py.
-    </p>
-    {% endif %}
+    <button id="login-btn" type="button">Sign in with a passkey</button>
 
-    <button id="login" type="button">Sign in with passkey</button>
-
-    <noscript>
-        <p class="alert-error">Passkey sign-in needs JavaScript.</p>
-    </noscript>
+    <p><small class="muted">
+        No account yet? This dashboard is invitation only — ask an admin for a link.
+    </small></p>
 </article>
 
-{% include "partials/webauthn_js.html" %}
+{% include "partials/passkey_js.html" %}
 <script>
-const button = document.getElementById('login');
-const errorBox = document.getElementById('error');
+    const loginBtn = document.getElementById("login-btn");
+    loginBtn.addEventListener("click", () =>
+        runCeremony(loginBtn, () => usePasskey("/auth/login/options", "/auth/login/verify")));
 
-function showError(message) {
-    errorBox.textContent = message;
-    errorBox.style.display = 'block';
-}
-
-if (!webauthnSupported()) {
-    button.disabled = true;
-    showError('This browser cannot use passkeys here. The dashboard must be served over HTTPS.');
-}
-
-button.addEventListener('click', async () => {
-    errorBox.style.display = 'none';
-    button.setAttribute('aria-busy', 'true');
-    button.disabled = true;
-    try {
-        const options = await postJSON('/auth/login/options');
-        options.challenge = b64urlToBuf(options.challenge);
-        decodeCredentials(options.allowCredentials);
-
-        const assertion = await navigator.credentials.get({publicKey: options});
-        await postJSON('/auth/login/verify', encodeAssertion(assertion));
-        window.location.href = '/';
-    } catch (err) {
-        // A cancelled prompt throws too — say something useful either way.
-        showError(err.name === 'NotAllowedError' ? 'Sign-in was cancelled or timed out.' : err.message);
-        button.removeAttribute('aria-busy');
-        button.disabled = false;
+    if (!window.PublicKeyCredential) {
+        loginBtn.disabled = true;
+        showError("This browser does not support passkeys.");
     }
-});
 </script>
 {% endblock %}

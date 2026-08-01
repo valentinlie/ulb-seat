@@ -5,12 +5,12 @@ from fastapi.responses import HTMLResponse
 
 from core import db
 from web import templates, ctx
-from web.auth import require_auth
+from web.auth import Auth, require_account
 
 router = APIRouter()
 
 
 @router.get("/history", response_class=HTMLResponse)
-def history(request: Request, _user: str = Depends(require_auth)):
-    bookings = db.get_recent_bookings(limit=20)
-    return templates.TemplateResponse("history.html", ctx(request, bookings=bookings))
+def history(request: Request, auth: Auth = Depends(require_account)):
+    bookings = db.get_recent_bookings(auth.account.id, limit=20)
+    return templates.TemplateResponse("history.html", ctx(request, auth=auth, bookings=bookings))

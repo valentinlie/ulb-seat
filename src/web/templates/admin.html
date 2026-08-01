@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% set active_page = "admin" %}
+
+{% block title %}Admin - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>Admin</h2>
+
+{% if new_token %}
+<article>
+    <h3>Invitation created</h3>
+    <p>Send this link to the person you are inviting. It works once.</p>
+    <p class="token" id="invite-link">{{ invite_base }}/register?token={{ new_token }}</p>
+    <button type="button" class="secondary outline"
+            onclick="navigator.clipboard.writeText(document.getElementById('invite-link').textContent.trim()); this.textContent='Copied';">
+        Copy link
+    </button>
+</article>
+{% endif %}
+
+<section>
+    <h3>Invite someone</h3>
+    <form method="post" action="/admin/invites">
+        <label for="note">
+            Note
+            <input type="text" id="note" name="note" maxlength="255"
+                   placeholder="Who is this for? (optional)">
+        </label>
+
+        <label for="account_id">
+            Share a ULB account with them
+            <select id="account_id" name="account_id">
+                <option value="">None — they add their own</option>
+                {% for account in accounts %}
+                <option value="{{ account.id }}">{{ account.label }} ({{ account.sso_username }})</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label for="ttl_days">
+            Valid for (days)
+            <input type="number" id="ttl_days" name="ttl_days" value="14" min="1" max="90">
+        </label>
+
+        <label for="grants_admin">
+            <input type="checkbox" id="grants_admin" name="grants_admin" value="true">
+            Make them an admin (can invite and remove users)
+        </label>
+
+        <button type="submit">Create invitation link</button>
+    </form>
+</section>
+
+<section>
+    <h3>Invitations</h3>
+    {% if invites %}
+    <table>
+        <thead>
+            <tr><th>Note</th><th>Status</th><th>Expires</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for invite in invites %}
+            <tr>
+                <td>
+                    {{ invite.note or "—" }}
+                    {% if invite.grants_admin %}<span class="badge badge-admin">admin</span>{% endif %}
+                </td>
+                <td>
+                    {% if invite.used_at %}
+                        <span class="badge badge-disabled">used {{ invite.used_at.strftime("%d.%m.%Y") }}</span>
+                    {% elif invite.expires_at < now %}
+                        <span class="badge badge-failed">expired</span>
+                    {% else %}
+                        <span class="badge badge-enabled">open</span>
+                    {% endif %}
+                </td>
+                <td>{{ invite.expires_at.strftime("%d.%m.%Y") }}</td>
+                <td class="actions">
+                    {% if not invite.used_at %}
+                    <form method="post" action="/admin/invites/{{ invite.token }}/revoke">
+                        <button type="submit" class="secondary outline">Revoke</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No invitations yet.</p>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Users</h3>
+    <table>
+        <thead>
+            <tr><th>Name</th><th>Joined</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>
+                    {{ user.display_name }}
+                    {% if user.is_admin %}<span class="badge badge-admin">admin</span>{% endif %}
+                    {% if user.id == auth.user.id %}<small class="muted">(you)</small>{% endif %}
+                </td>
+                <td>{{ user.created_at.strftime("%d.%m.%Y") }}</td>
+                <td class="actions">
+                    {% set last_admin = user.is_admin and admin_count <= 1 %}
+                    {% if not last_admin %}
+                    <form method="post" action="/admin/users/{{ user.id }}/admin">
+                        <button type="submit" class="secondary outline">
+                            {{ "Revoke admin" if user.is_admin else "Make admin" }}
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% if user.id != auth.user.id and not last_admin %}
+                    <form method="post" action="/admin/users/{{ user.id }}/delete"
+                          onsubmit="return confirm('Remove {{ user.display_name }}? Their passkeys and access are deleted.')">
+                        <button type="submit" class="secondary">Remove</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

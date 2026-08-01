@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% set active_page = "settings" %}
+
+{% block title %}Your passkeys - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>{{ auth.user.display_name }}</h2>
+<p class="muted">
+    {% if auth.is_admin %}<span class="badge badge-admin">Admin</span>{% endif %}
+    Signed in with a passkey.
+</p>
+
+<form method="post" action="/settings/name">
+    <fieldset role="group">
+        <input type="text" name="display_name" maxlength="100" required
+               value="{{ auth.user.display_name }}" aria-label="Your display name">
+        <button type="submit" class="secondary">Rename</button>
+    </fieldset>
+</form>
+
+<section>
+    <h3>Your passkeys</h3>
+    <div id="passkey-error" class="alert-error" role="alert" hidden></div>
+
+    <table>
+        <thead>
+            <tr><th>Device</th><th>Added</th><th>Last used</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for cred in credentials %}
+            <tr>
+                <td>{{ cred.name }}</td>
+                <td>{{ cred.created_at.strftime("%d.%m.%Y") }}</td>
+                <td>{{ cred.last_used_at.strftime("%d.%m.%Y %H:%M") if cred.last_used_at else "never" }}</td>
+                <td class="actions">
+                    {% if credentials|length > 1 %}
+                    <form method="post" action="/settings/passkeys/{{ cred.id }}/delete">
+                        <button type="submit" class="secondary outline">Remove</button>
+                    </form>
+                    {% else %}
+                    <small class="muted">Your only passkey</small>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <button id="add-passkey-btn" type="button" class="secondary">Add another device</button>
+    <p><small class="muted">
+        Register a passkey on your phone or laptop so you can still sign in if
+        you lose this device.
+    </small></p>
+</section>
+
+{% include "partials/passkey_js.html" %}
+<script>
+    const addBtn = document.getElementById("add-passkey-btn");
+    addBtn.addEventListener("click", () =>
+        runCeremony(addBtn, () => createPasskey(
+            "/auth/passkeys/options", "/auth/passkeys/verify", {})));
+</script>
+{% endblock %}

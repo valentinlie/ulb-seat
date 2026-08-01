@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Accept invitation - ULB Reservation{% endblock %}
+
+{% block content %}
+<article class="narrow">
+    <h2>Accept your invitation</h2>
+
+    {% if not invite %}
+    <div class="alert-error" role="alert">
+        This invitation link is invalid, already used, or expired.
+        Ask whoever invited you for a fresh one.
+    </div>
+    <p><a href="/login">Back to sign in</a></p>
+    {% else %}
+    {% if invite.note %}<p class="muted">Invitation: {{ invite.note }}</p>{% endif %}
+
+    <div id="passkey-error" class="alert-error" role="alert" hidden></div>
+
+    <label for="display-name">
+        Your name
+        <input type="text" id="display-name" maxlength="100" required
+               placeholder="e.g. Valentin" autocomplete="name">
+    </label>
+
+    <button id="register-btn" type="button">Create a passkey</button>
+
+    <p><small class="muted">
+        Your device will ask for your fingerprint, face, or PIN. That passkey
+        becomes your login here — you can add more devices later.
+    </small></p>
+    {% endif %}
+</article>
+
+{% if invite %}
+{% include "partials/passkey_js.html" %}
+<script>
+    const registerBtn = document.getElementById("register-btn");
+    const nameInput = document.getElementById("display-name");
+
+    registerBtn.addEventListener("click", () => {
+        const displayName = nameInput.value.trim();
+        if (!displayName) { showError("Please enter your name first."); return; }
+        runCeremony(registerBtn, () => createPasskey(
+            "/auth/register/options", "/auth/register/verify",
+            {token: {{ token | tojson }}, display_name: displayName},
+        ));
+    });
+
+    if (!window.PublicKeyCredential) {
+        registerBtn.disabled = true;
+        showError("This browser does not support passkeys.");
+    }
+</script>
+{% endif %}
+{% endblock %}

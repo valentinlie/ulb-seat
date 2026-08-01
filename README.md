@@ -8,14 +8,24 @@ Schedule recurring or one-shot bookings through a web dashboard, or run a quick 
 - **Web dashboard** -- manage jobs, view booking history, trigger manual runs
 - **Recurring jobs** -- book seats automatically on specific days of the week
 - **One-shot jobs** -- schedule a single booking for a specific date
+- **Passkey login** -- no passwords; invitation-only, several people per instance
+- **Multiple ULB accounts** -- one login can manage and switch between accounts, and an account can be shared
 - **CLI** -- book a seat directly from the terminal
 - **Captcha solving** -- OCR-based (Tesseract) automatic captcha handling
 - **Seat preferences** -- tries your preferred seats first, falls back to any available
+
+### Who owns what
+
+- A **user** is a person, identified by one or more **passkeys** (phone, laptop, security key).
+- An **account** is a ULB login: SSO credentials plus a library card number. Jobs and booking history belong to an account.
+- **Membership** links them many-to-many, so one passkey login can manage several accounts, and one account can be shared with several people.
+- Signing up is **invitation only**. Admins mint single-use invitation links; the first user is created from the command line and is automatically an admin.
 
 ## Requirements
 
 - Python 3.13+
 - PostgreSQL
+- A domain with HTTPS -- passkeys only work in a secure context (`localhost` is fine for development)
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) (system package)
 - [uv](https://docs.astral.sh/uv/) (package manager)
 
@@ -52,13 +62,11 @@ Tables are created automatically on first startup.
 
 Copy the example below and fill in your credentials. This file is git-ignored.
 
+ULB credentials are **not** configured here -- they are entered in the dashboard,
+stored encrypted, and there can be several sets of them (one per account).
+
 ```python
 """Configuration for ULB seat reservation."""
-
-# ── SSO credentials (Uni Münster) ────────────────────────────────────────────
-SSO_USERNAME = "your_sso_username"
-SSO_PASSWORD = "your_sso_password"
-LIBRARY_NUMBER = "A12345678/X"  # your library card number
 
 MAX_CAPTCHA_RETRIES = 5
 
@@ -90,29 +98,50 @@ DB_NAME = "ulb_seat"
 DB_USER = "your_db_user"
 DB_PASS = "your_db_password"
 
-# ── Dashboard login (WebAuthn / passkey) ─────────────────────────────────────
-# False drops authentication entirely and leaves the dashboard open — handy for
-# a purely local run. Everything below is then unused. See "Passkeys".
-AUTH_ENABLED = True
+# ── Encryption of stored ULB passwords ───────────────────────────────────────
+# Generate with:
+#   uv run python -c 'import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'
+# Changing this makes every stored ULB password unreadable.
+CREDENTIAL_KEY = "your_generated_key"
 
-# RP_ID is the bare hostname the dashboard is served from — no scheme, no port.
-# ORIGIN is the full origin your browser shows. The site must be HTTPS.
-RP_ID = "ulb.example.de"
-RP_NAME = "ULB Seat Reservation"
-ORIGIN = "https://ulb.example.de"
+# ── Passkeys (WebAuthn) ──────────────────────────────────────────────────────
+RP_ID = "seats.example.com"          # bare hostname, no scheme or port
+RP_NAME = "ULB Seat Reservation"     # shown in the passkey prompt
+ORIGIN = "https://seats.example.com" # scheme + host (+ port), no path
 
-# python -c "import secrets; print(secrets.token_urlsafe(32))"
-SESSION_SECRET = "change_me"
-SESSION_MAX_AGE = 30 * 24 * 3600
+SESSION_MAX_AGE = 30 * 24 * 3600     # how long a login lasts
 
-# Single-use enrolment token: /passkeys?token=<value>. Empty closes enrolment
-# to everyone but an already signed-in session.
-REGISTRATION_TOKEN = ""
+# Optional: only for local development over plain http.
+# COOKIE_SECURE = False
 
 # ── Web server ───────────────────────────────────────────────────────────────
 HOST = "0.0.0.0"
 PORT = 8000
 ```
+
+`RP_ID` must be the exact hostname the dashboard is served from (or a parent of
+it) -- `seats.example.com`, not `https://seats.example.com` and not with a port.
+`ORIGIN` must match what the browser shows. A passkey is cryptographically bound
+to `RP_ID`, so moving the dashboard to another hostname means registering new
+ones -- pick the final domain before inviting anyone.
+
+Sessions are rows in the database behind an opaque cookie rather than signed
+cookies, so there is no secret to configure; enrolment goes through invitations.
+There is no switch to turn authentication off -- with several users there is no
+sensible identity to fall back to.
+
+### 4. Create the first user
+
+Passkeys can only be registered through an invitation, and the first one comes
+from the command line:
+
+```bash
+uv run python src/cli.py invite --note "me"
+```
+
+That prints a single-use link. Open it in a browser, pick a name, and create a
+passkey -- the first user is automatically an admin. From then on, invitations
+are minted in the dashboard under **Admin**.
 
 ## Usage
 
@@ -126,17 +155,26 @@ uv run src/main.py
 uv run uvicorn web.app:app --app-dir src
 ```
 
-Open the dashboard behind your HTTPS reverse proxy (the host you set as
-`ORIGIN`) and unlock it with your **passkey**. To enrol the first key, set
-`REGISTRATION_TOKEN` in `config.py` and visit
-`https://ulb.valentinl.de/passkeys?token=<token>` — see [Passkeys](#passkeys).
+Open the dashboard and sign in with your passkey.
 
 From the dashboard you can:
 
+- **Add a ULB account** -- Accounts > Add ULB account (SSO login + library card)
+- **Switch accounts** with the selector in the nav bar; jobs and history always
+  belong to the account currently selected
+- **Share an account** with another user from its edit page -- they can then
+  manage its jobs
 - **Create jobs** -- go to Jobs > New Job
 - **Toggle jobs** on/off
 - **Run a job immediately** with the "Run Now" button
 - **View booking history** with status and error messages
+- **Add more passkeys** under your name in the nav bar, so you can still sign in
+  if you lose a device
+- **Invite people** under Admin (admins only): a single-use link that optionally
+  pre-shares one of your ULB accounts and can grant admin rights
+
+Removing a user deletes their passkeys and access. Accounts they shared stay put
+unless they were the only member.
 
 #### Job types
 
@@ -155,9 +193,9 @@ Example: to always have a seat on weekday mornings, set days to `mon,tue,wed,thu
 
 ### CLI
 
-The `ulb` CLI (`uv run python src/cli.py <command>`) has three command groups:
-booking, the web UI, and service management. For quick one-off bookings without
-the web interface, use `book`:
+The `ulb` CLI (`uv run python src/cli.py <command>`) has four command groups:
+booking, users, the web UI, and service management. For quick one-off bookings
+without the web interface, use `book`:
 
 ```bash
 # Book a seat 3 days from now, morning slot
@@ -171,6 +209,18 @@ uv run python src/cli.py book --date-offset 2 --time "08:00-12:00" --group-room
 
 # Prefer a specific section
 uv run python src/cli.py book --date-offset 3 --time "08:00-12:00" --section "Hauptlesesaal"
+
+# With several ULB accounts, say which one to book with (id or label)
+uv run python src/cli.py book --date-offset 3 --time "08:00-12:00" --account "My login"
+```
+
+User management from the terminal:
+
+```bash
+uv run python src/cli.py invite --note "for Bob" --days 7   # single-use link
+uv run python src/cli.py invite --admin --note "co-admin"   # can invite others
+uv run python src/cli.py users                              # who has access
+uv run python src/cli.py accounts                           # ULB accounts + members
 ```
 
 Other commands: `jobs` (list saved jobs), `run-job <id>` (fire a saved job — the
@@ -200,30 +250,16 @@ Creating, editing, toggling, or deleting a job through the dashboard (or a
 pulling code changes to rewrite the units. The units run `uv run` from the repo
 directory, so keep the checkout in place.
 
+Put a TLS-terminating reverse proxy in front of `ulb-web.socket` and point
+`ORIGIN` at it. Passkeys are refused on plain HTTP, and session cookies
+are sent with `Secure` unless you set `COOKIE_SECURE = False`.
+
 > **Enable lingering** so timers fire even when you are not logged in — bookings
 > at 00:01 depend on it:
 >
 > ```bash
 > sudo loginctl enable-linger "$USER"
 > ```
-
-## Passkeys
-
-The dashboard authenticates with WebAuthn ([py_webauthn](https://github.com/duo-labs/py_webauthn)) — no password anywhere. Keys live in the `ulb_credentials` table.
-
-**Turning auth off.** For a purely local run, set `AUTH_ENABLED = False` in `config.py`. The dashboard is then served with no login at all: `/login` and `/passkeys` redirect to the dashboard, the ceremony endpoints return 404, and the Passkeys/Log out controls disappear. Your registered keys stay in the database untouched, so flipping it back to `True` restores exactly where you left off. The app logs a warning on every start while it is off — only do this when the dashboard is not reachable from the network.
-
-**Requirements.** WebAuthn only runs in a secure context, so the dashboard must be served over **HTTPS** (the sole exception browsers make is `localhost`). `RP_ID` must equal the hostname exactly — `ulb.example.de`, not `https://ulb.example.de` and not `ulb.example.de:8000`. A passkey is cryptographically bound to `RP_ID`, so if you later move the dashboard to a different hostname you must register a new one.
-
-**Enrolling a key.** There is no anonymous enrolment — a fresh deployment is never up for grabs. Registering requires either an already signed-in session or the `REGISTRATION_TOKEN` from `config.py`, passed as `https://ulb.valentinl.de/passkeys?token=<token>`. The token is validated once, remembered in the session, then dropped from the URL by a redirect; registering spends the unlock and signs you in. A wrong token is logged and changes nothing. The token is **single-use**: registering with it records its SHA-256 in `ulb_consumed_tokens` and the link stops working, so it cannot be replayed out of your browser history or the reverse proxy's access log. Adding further keys while signed in does not spend it. To enrol again, put a new value in `config.py`.
-
-**Managing keys.** Once signed in, the *Passkeys* nav entry lists the registered keys and lets you add or remove them — no token needed while signed in. Adding a second one (e.g. your phone as well as your laptop) is worth doing.
-
-**Locked out?** Set a fresh `REGISTRATION_TOKEN` in `config.py`, restart, and enrol again via `/passkeys?token=...`. Only if you also want to clear the old keys:
-
-```bash
-psql -d vali -c "DELETE FROM ulb_credentials"
-```
 
 ## Project structure
 
@@ -237,10 +273,11 @@ ulb-seat/
     ├── cli.py                  # CLI entry point
     │
     ├── core/
-    │   ├── auth.py             # SSO login and captcha flow
+    │   ├── auth.py             # SSO login and captcha flow (per ULB account)
     │   ├── booking.py          # Booking orchestration
     │   ├── captcha.py          # Tesseract OCR captcha solver
-    │   ├── db.py               # PostgreSQL access (jobs + booking log)
+    │   ├── crypto.py           # AES-256-GCM encryption of stored ULB passwords
+    │   ├── db.py               # PostgreSQL access (users, accounts, jobs, log)
     │   ├── exceptions.py       # BookingError
     │   ├── reservation.py      # Timeslot search, seat selection, reservation
     │   ├── worker.py           # Execute one scheduled job, then exit
@@ -248,13 +285,15 @@ ulb-seat/
     │
     └── web/
         ├── app.py              # FastAPI app (socket-activated, idle-shutdown)
-        ├── auth.py             # Passkey (WebAuthn) login + session guard
+        ├── auth.py             # Session cookies + auth dependencies
+        ├── passkeys.py         # WebAuthn ceremonies
         ├── routes/
+        │   ├── auth.py         # Passkey login, invitations, /settings
+        │   ├── accounts.py     # ULB accounts, members, switching
+        │   ├── admin.py        # Invitations and users
         │   ├── dashboard.py    # GET /
         │   ├── jobs.py         # Job CRUD + manual run
-        │   ├── history.py      # GET /history
-        │   ├── auth.py         # Passkey login / logout / key management
-        │   └── partials.py     # HTMX partial updates
+        │   └── history.py      # GET /history
         └── templates/          # Jinja2 templates (Pico CSS + HTMX)
 ```
 

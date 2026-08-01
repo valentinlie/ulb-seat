@@ -6,8 +6,15 @@ hand we disable the idle-shutdown watchdog so the server stays up.
 """
 
 import os
+import sys
+from pathlib import Path
 
 os.environ.setdefault("ULB_WEB_IDLE_TIMEOUT", "0")
+
+# config.py lives in the repo root, outside this import root (see cli.py).
+_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "src"))
 
 import uvicorn
 

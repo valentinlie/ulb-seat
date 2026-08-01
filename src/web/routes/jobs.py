@@ -13,7 +13,7 @@ from core import systemd
 from core.booking import execute_booking
 from core.exceptions import BookingError
 from web import templates, ctx
-from web.auth import require_auth
+from web.auth import Auth, require_account
 
 log = logging.getLogger(__name__)
 
@@ -23,14 +23,14 @@ _TZ = ZoneInfo("Europe/Berlin")
 
 
 @router.get("/jobs", response_class=HTMLResponse)
-def job_list(request: Request, _user: str = Depends(require_auth)):
-    jobs = db.get_all_jobs()
-    return templates.TemplateResponse("jobs.html", ctx(request, jobs=jobs))
+def job_list(request: Request, auth: Auth = Depends(require_account)):
+    jobs = db.get_all_jobs(auth.account.id)
+    return templates.TemplateResponse("jobs.html", ctx(request, auth=auth, jobs=jobs))
 
 
 @router.get("/jobs/new", response_class=HTMLResponse)
-def job_new(request: Request, _user: str = Depends(require_auth)):
-    return templates.TemplateResponse("job_form.html", ctx(request, job=None))
+def job_new(request: Request, auth: Auth = Depends(require_account)):
+    return templates.TemplateResponse("job_form.html", ctx(request, auth=auth, job=None))
 
 
 def _build_run_at(run_date: str, run_hour: int, run_minute: int) -> datetime | None:
@@ -93,15 +93,15 @@ class JobForm:
 
 @router.post("/jobs", response_class=HTMLResponse)
 def job_create(request: Request, form: JobForm = Depends(),
-               _user: str = Depends(require_auth)):
-    job_id = db.create_job({**form.data, "enabled": True})
+               auth: Auth = Depends(require_account)):
+    job_id = db.create_job(auth.account.id, {**form.data, "enabled": True})
     systemd.sync_job_timer(db.get_job(job_id))
     return RedirectResponse(url="/jobs", status_code=303)
 
 
 @router.get("/jobs/{job_id}/edit", response_class=HTMLResponse)
-def job_edit(request: Request, job_id: int, _user: str = Depends(require_auth)):
-    job = db.get_job(job_id)
+def job_edit(request: Request, job_id: int, auth: Auth = Depends(require_account)):
+    job = db.get_job(job_id, auth.account.id)
     if not job:
         return RedirectResponse(url="/jobs", status_code=303)
     # Fill the form-only fields from run_at
@@ -109,13 +109,13 @@ def job_edit(request: Request, job_id: int, _user: str = Depends(require_auth)):
         job.run_date = job.run_at.strftime("%d.%m.%Y")
         job.run_hour = job.run_at.hour
         job.run_minute = job.run_at.minute
-    return templates.TemplateResponse("job_form.html", ctx(request, job=job))
+    return templates.TemplateResponse("job_form.html", ctx(request, auth=auth, job=job))
 
 
 @router.post("/jobs/{job_id}", response_class=HTMLResponse)
 def job_update(request: Request, job_id: int, form: JobForm = Depends(),
-               _user: str = Depends(require_auth)):
-    existing = db.get_job(job_id)
+               auth: Auth = Depends(require_account)):
+    existing = db.get_job(job_id, auth.account.id)
     if not existing:
         return RedirectResponse(url="/jobs", status_code=303)
     db.update_job(job_id, {**form.data, "enabled": existing.enabled})
@@ -124,7 +124,9 @@ def job_update(request: Request, job_id: int, form: JobForm = Depends(),
 
 
 @router.post("/jobs/{job_id}/delete", response_class=HTMLResponse)
-def job_delete(request: Request, job_id: int, _user: str = Depends(require_auth)):
+def job_delete(request: Request, job_id: int, auth: Auth = Depends(require_account)):
+    if not db.get_job(job_id, auth.account.id):
+        return HTMLResponse("")
     systemd.remove_job_timer(job_id)
     db.delete_job(job_id)
     # Return empty string so HTMX removes the row
@@ -132,7 +134,9 @@ def job_delete(request: Request, job_id: int, _user: str = Depends(require_auth)
 
 
 @router.post("/jobs/{job_id}/toggle", response_class=HTMLResponse)
-def job_toggle(request: Request, job_id: int, _user: str = Depends(require_auth)):
+def job_toggle(request: Request, job_id: int, auth: Auth = Depends(require_account)):
+    if not db.get_job(job_id, auth.account.id):
+        return HTMLResponse("")
     new_state = db.toggle_job(job_id)
     job = db.get_job(job_id)
     if job:
@@ -140,12 +144,12 @@ def job_toggle(request: Request, job_id: int, _user: str = Depends(require_auth)
             systemd.sync_job_timer(job)
         else:
             systemd.remove_job_timer(job_id)
-    return templates.TemplateResponse("partials/job_row.html", ctx(request, job=job))
+    return templates.TemplateResponse("partials/job_row.html", ctx(request, auth=auth, job=job))
 
 
 @router.post("/jobs/{job_id}/run", response_class=HTMLResponse)
-def job_run_now(request: Request, job_id: int, _user: str = Depends(require_auth)):
-    job = db.get_job(job_id)
+def job_run_now(request: Request, job_id: int, auth: Auth = Depends(require_account)):
+    job = db.get_job(job_id, auth.account.id)
     if not job:
         return HTMLResponse('<div role="alert">Job not found</div>')
 
@@ -158,6 +162,7 @@ def job_run_now(request: Request, job_id: int, _user: str = Depends(require_auth
         return HTMLResponse('<div role="alert">No target date configured</div>')
 
     log_id = db.log_booking_start(
+        account_id=auth.account.id,
         job_id=job.id,
         job_name=job.name,
         library_id=job.library_id,
@@ -169,6 +174,7 @@ def job_run_now(request: Request, job_id: int, _user: str = Depends(require_auth
 
     try:
         result = execute_booking(
+            account=auth.account,
             library_id=job.library_id,
             date=target_date.strftime("%d.%m.%Y"),
             time_slot=job.time_slot,

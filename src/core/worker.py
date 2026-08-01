@@ -25,6 +25,11 @@ def run_job(job_id: int) -> None:
         log.info("Job %d is disabled, skipping.", job_id)
         return
 
+    account = db.get_account(job.account_id) if job.account_id else None
+    if not account:
+        log.error("Job %d has no ULB account attached, skipping.", job_id)
+        return
+
     if job.recurring and job.date_offset is not None:
         target_date = date.today() + timedelta(days=job.date_offset)
     elif job.target_date:
@@ -34,6 +39,7 @@ def run_job(job_id: int) -> None:
         return
 
     log_id = db.log_booking_start(
+        account_id=job.account_id,
         job_id=job_id,
         job_name=job.name,
         library_id=job.library_id,
@@ -44,6 +50,7 @@ def run_job(job_id: int) -> None:
 
     try:
         result = execute_booking(
+            account=account,
             library_id=job.library_id,
             date=target_date.strftime("%d.%m.%Y"),
             time_slot=job.time_slot,

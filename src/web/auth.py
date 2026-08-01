@@ -1,220 +1,101 @@
-"""Passkey (WebAuthn) login for the web dashboard.
+"""Session cookies and the auth dependencies for the dashboard.
 
-This is a single-owner dashboard, so there is no user table: every registered
-passkey belongs to the one account described by ``USER_HANDLE``/``USER_NAME``.
-A successful assertion flips a signed session cookie, and ``require_auth``
-guards the routes from then on.
-
-Registering a passkey requires either an already signed-in session or the
-enrolment token from config.py (``/passkeys?token=...``). There is no
-anonymous enrolment, not even for the first key — see ``registration_allowed``.
-
-Setting ``AUTH_ENABLED = False`` in config.py switches the whole thing off and
-leaves the dashboard open — meant for running it locally, never on a public
-host.
+Login is by passkey (see :mod:`web.passkeys` and ``web.routes.auth``); this
+module only deals with what happens *after* a successful ceremony: an opaque
+session token in an HttpOnly cookie, and the dependencies that turn it back
+into a user, their accounts, and the one they are currently looking at.
 """
 
-import hashlib
-import json
-import logging
-import secrets
-from typing import Any
+from dataclasses import dataclass
 
-from fastapi import Request, Response
-from fastapi.responses import RedirectResponse
-from webauthn import (
-    base64url_to_bytes,
-    generate_authentication_options,
-    generate_registration_options,
-    options_to_json,
-    verify_authentication_response,
-    verify_registration_response,
-)
-from webauthn.helpers import bytes_to_base64url
-from webauthn.helpers.structs import (
-    AuthenticatorSelectionCriteria,
-    PublicKeyCredentialDescriptor,
-    ResidentKeyRequirement,
-    UserVerificationRequirement,
-)
+from fastapi import Depends, HTTPException, Request, Response
 
-from config import AUTH_ENABLED, ORIGIN, REGISTRATION_TOKEN, RP_ID, RP_NAME
 from core import db
 
-log = logging.getLogger(__name__)
+try:
+    from config import COOKIE_SECURE
+except ImportError:
+    COOKIE_SECURE = True  # passkeys need HTTPS anyway; only relax for local dev
 
-# Opaque, stable handle for the single dashboard owner. Never displayed.
-USER_HANDLE = b"ulb-seat-owner"
-USER_NAME = "vale"
+COOKIE_NAME = "ulb_session"
+_MAX_AGE = int(db.SESSION_TTL.total_seconds())
 
-_REG_CHALLENGE = "reg_challenge"
-_AUTH_CHALLENGE = "auth_challenge"
-_ENROL_OK = "enrol_ok"
-
-
-class NotAuthenticated(Exception):
-    """Raised by :func:`require_auth`; the app turns it into a redirect."""
+# Sessions are rows in the database rather than signed cookies, so there is no
+# SESSION_SECRET to keep — the cookie is an opaque, revocable token.
 
 
-def require_auth(request: Request) -> str:
-    """Route dependency. Returns the user name, or bounces to the login page."""
-    if not AUTH_ENABLED:
-        return USER_NAME
-    if not request.session.get("authenticated"):
-        raise NotAuthenticated
-    return USER_NAME
+@dataclass
+class Auth:
+    """The logged-in user, the accounts they may manage, and the active one."""
+
+    user: db.User
+    accounts: list[db.Account]
+    account: db.Account | None
+    token: str
+
+    @property
+    def is_admin(self) -> bool:
+        return self.user.is_admin
 
 
-def not_authenticated_handler(request: Request, _exc: Exception) -> Response:
-    """htmx swaps the response body, so it needs an explicit redirect header."""
-    if request.headers.get("HX-Request") == "true":
-        return Response(status_code=401, headers={"HX-Redirect": "/login"})
-    return RedirectResponse("/login", status_code=303)
+def set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        COOKIE_NAME, token, max_age=_MAX_AGE, httponly=True,
+        secure=COOKIE_SECURE, samesite="lax", path="/",
+    )
 
 
-def is_authenticated(request: Request) -> bool:
-    """Whether the visitor may see the dashboard — always, once auth is switched off."""
-    return not AUTH_ENABLED or bool(request.session.get("authenticated"))
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(COOKIE_NAME, path="/")
 
 
-def _token_hash(token: str) -> str:
-    """Only the hash is stored, so a spent token is never at rest in the DB."""
-    return hashlib.sha256(token.encode()).hexdigest()
+def _redirect(to: str) -> HTTPException:
+    """Redirect from inside a dependency, which cannot return a response.
 
-
-def unlock_enrolment(request: Request, token: str | None) -> bool:
-    """Check ?token= against the configured one and remember it for this session.
-
-    This is the only way to enrol without already being signed in. An unset
-    REGISTRATION_TOKEN disables the route entirely rather than opening it.
+    ``HX-Redirect`` makes HTMX navigate instead of swapping the login page into
+    whatever fragment it was updating.
     """
-    if not AUTH_ENABLED or not REGISTRATION_TOKEN or not token:
-        return False
-    if not secrets.compare_digest(token, REGISTRATION_TOKEN):
-        log.warning("Rejected a passkey enrolment attempt with a bad token")
-        return False
-    if db.token_consumed(_token_hash(token)):
-        log.warning("Rejected a passkey enrolment attempt with an already-spent token")
-        return False
-    request.session[_ENROL_OK] = True
-    return True
+    return HTTPException(status_code=303, detail="Not authenticated",
+                         headers={"Location": to, "HX-Redirect": to})
 
 
-def registration_allowed(request: Request) -> bool:
-    """Enrolling needs a signed-in session or a validated enrolment token.
+def optional_auth(request: Request) -> Auth | None:
+    """Resolve the session cookie, or None when not logged in."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        return None
+    session = db.get_session(token)
+    if not session:
+        return None
+    user = db.get_user(session["user_id"])
+    if not user:
+        return None
 
-    Deliberately reads the session rather than :func:`is_authenticated`: with
-    auth disabled nobody is really signed in, and there is nothing to enrol.
-    """
-    if not AUTH_ENABLED:
-        return False
-    return bool(request.session.get("authenticated")) or bool(request.session.get(_ENROL_OK))
-
-
-def complete_enrolment(request: Request) -> None:
-    """Enrolling doubles as a login; burn the token so its link cannot be reused.
-
-    Only a token-unlocked enrolment spends the token — an already signed-in
-    owner adding a spare key must not invalidate it.
-    """
-    by_token = request.session.pop(_ENROL_OK, None)
-    if by_token and REGISTRATION_TOKEN:
-        db.consume_token(_token_hash(REGISTRATION_TOKEN))
-        log.info("Enrolment token spent; the link no longer works")
-    request.session["authenticated"] = True
+    accounts = db.get_accounts_for_user(user.id)
+    active = next((a for a in accounts if a.id == session["active_account_id"]), None)
+    if active is None and accounts:
+        # Membership was revoked, or the session predates the account: pick one
+        # and remember it so the switcher and the pages agree.
+        active = accounts[0]
+        db.set_active_account(token, active.id)
+    return Auth(user=user, accounts=accounts, account=active, token=token)
 
 
-def _descriptors() -> list[PublicKeyCredentialDescriptor]:
-    return [
-        PublicKeyCredentialDescriptor(id=base64url_to_bytes(c.credential_id))
-        for c in db.get_credentials()
-    ]
+def require_auth(request: Request) -> Auth:
+    auth = optional_auth(request)
+    if auth is None:
+        raise _redirect("/login")
+    return auth
 
 
-# ── Registration ─────────────────────────────────────────────────────────────
-
-def registration_options(request: Request) -> dict[str, Any]:
-    """Build creation options and stash the challenge in the session."""
-    options = generate_registration_options(
-        rp_id=RP_ID,
-        rp_name=RP_NAME,
-        user_id=USER_HANDLE,
-        user_name=USER_NAME,
-        user_display_name=USER_NAME,
-        # Refuse to enrol a key that is already registered.
-        exclude_credentials=_descriptors(),
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            # Discoverable, so the browser can offer the passkey without a username.
-            resident_key=ResidentKeyRequirement.PREFERRED,
-            user_verification=UserVerificationRequirement.PREFERRED,
-        ),
-    )
-    request.session[_REG_CHALLENGE] = bytes_to_base64url(options.challenge)
-    return json.loads(options_to_json(options))
+def require_account(auth: Auth = Depends(require_auth)) -> Auth:
+    """For pages that act on a ULB account — send the user to create one first."""
+    if auth.account is None:
+        raise _redirect("/accounts")
+    return auth
 
 
-def verify_registration(request: Request, credential: dict[str, Any], label: str | None) -> None:
-    """Verify the attestation and store the new passkey. Raises on any mismatch."""
-    challenge = request.session.pop(_REG_CHALLENGE, None)
-    if not challenge:
-        raise ValueError("No registration in progress — reload the page and try again.")
-
-    verified = verify_registration_response(
-        credential=credential,
-        expected_challenge=base64url_to_bytes(challenge),
-        expected_rp_id=RP_ID,
-        expected_origin=ORIGIN,
-    )
-
-    transports = credential.get("response", {}).get("transports") or []
-    db.add_credential(
-        credential_id=bytes_to_base64url(verified.credential_id),
-        public_key=verified.credential_public_key,
-        sign_count=verified.sign_count,
-        transports=",".join(transports) or None,
-        label=(label or "").strip() or "Passkey",
-    )
-    log.info("Registered new passkey (label=%s)", label)
-
-
-# ── Authentication ───────────────────────────────────────────────────────────
-
-def authentication_options(request: Request) -> dict[str, Any]:
-    options = generate_authentication_options(
-        rp_id=RP_ID,
-        allow_credentials=_descriptors(),
-        user_verification=UserVerificationRequirement.PREFERRED,
-    )
-    request.session[_AUTH_CHALLENGE] = bytes_to_base64url(options.challenge)
-    return json.loads(options_to_json(options))
-
-
-def verify_authentication(request: Request, credential: dict[str, Any]) -> None:
-    """Verify the assertion and, on success, mark the session as logged in."""
-    challenge = request.session.pop(_AUTH_CHALLENGE, None)
-    if not challenge:
-        raise ValueError("No login in progress — reload the page and try again.")
-
-    raw_id = credential.get("rawId") or credential.get("id")
-    stored = db.get_credential(raw_id) if raw_id else None
-    if stored is None:
-        raise ValueError("Unknown passkey.")
-
-    verified = verify_authentication_response(
-        credential=credential,
-        expected_challenge=base64url_to_bytes(challenge),
-        expected_rp_id=RP_ID,
-        expected_origin=ORIGIN,
-        credential_public_key=bytes(stored.public_key),
-        credential_current_sign_count=stored.sign_count,
-    )
-
-    db.touch_credential(stored.credential_id, verified.new_sign_count)
-    # Drop any pre-login session state before granting access.
-    request.session.clear()
-    request.session["authenticated"] = True
-    log.info("Passkey login succeeded (label=%s)", stored.label)
-
-
-def logout(request: Request) -> None:
-    request.session.clear()
+def require_admin(auth: Auth = Depends(require_auth)) -> Auth:
+    if not auth.is_admin:
+        raise HTTPException(status_code=403, detail="Admins only")
+    return auth

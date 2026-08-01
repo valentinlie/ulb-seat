@@ -10,9 +10,9 @@ from core.reservation import find_timeslot, select_seat, reserve_seat
 log = logging.getLogger(__name__)
 
 
-def execute_booking(library_id: int, date: str, time_slot: str,
+def execute_booking(account, library_id: int, date: str, time_slot: str,
                     group_room: bool = False, preferred_section: str = "") -> dict:
-    """Run a full booking flow.
+    """Run a full booking flow for one ULB account (a ``db.Account``).
 
     Returns {"success": True, "seat_desc": "...", "message": "..."} on success.
     Raises BookingError on failure.
@@ -20,8 +20,8 @@ def execute_booking(library_id: int, date: str, time_slot: str,
     session = requests.Session()
     session.headers.update({"User-Agent": "Mozilla/5.0"})
 
-    html = login(session)
-    handle_captcha(session, html)
+    html = login(session, account)
+    handle_captcha(session, html, account.library_number)
 
     timeslot_href = find_timeslot(session, library_id, date, time_slot,
                                   group_room=group_room, preferred_section=preferred_section)
