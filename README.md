@@ -12,7 +12,7 @@ Schedule recurring or one-shot bookings through a web dashboard, or run a quick 
 - **Multiple ULB accounts** -- one login can manage and switch between accounts, and an account can be shared
 - **CLI** -- book a seat directly from the terminal
 - **Captcha solving** -- OCR-based (Tesseract) automatic captcha handling
-- **Seat preferences** -- tries your preferred seats first, falls back to any available
+- **Seat preferences** -- per account, set in the dashboard: tries your preferred seats first, falls back to any available
 
 ### Who owns what
 
@@ -64,6 +64,8 @@ Copy the example below and fill in your credentials. This file is git-ignored.
 
 ULB credentials are **not** configured here -- they are entered in the dashboard,
 stored encrypted, and there can be several sets of them (one per account).
+Neither are seat preferences: they belong to an account and are edited under
+Settings.
 
 ```python
 """Configuration for ULB seat reservation."""
@@ -86,10 +88,6 @@ LIBRARIES = {
     104: "Bibliotheken im Philosophikum",
     105: "Vom-Stein-Haus (Germanistik)",
 }
-
-# ── Seat preferences (tried in order, fallback to any available) ─────────────
-PREFERRED_SEATS = []         # e.g. [600, 6001]
-PREFERRED_GROUP_ROOMS = []   # e.g. [3, 4]
 
 # ── PostgreSQL ───────────────────────────────────────────────────────────────
 DB_HOST = "localhost"
@@ -168,6 +166,8 @@ From the dashboard you can:
 - **Toggle jobs** on/off
 - **Run a job immediately** with the "Run Now" button
 - **View booking history** with status and error messages
+- **Set seat preferences** under your name in the nav bar > Settings: seat and
+  group room numbers to try first, in order, for the account currently selected
 - **Add more passkeys** under your name in the nav bar, so you can still sign in
   if you lose a device
 - **Invite people** under Admin (admins only): a single-use link that optionally

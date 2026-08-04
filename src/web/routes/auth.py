@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import secrets
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -187,6 +188,32 @@ def rename_self(display_name: str = Form(...), auth: Auth = Depends(require_auth
     name = display_name.strip()
     if 1 <= len(name) <= 100:
         db.rename_user(auth.user.id, name)
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+def _seat_numbers(raw: str) -> list[int]:
+    """Parse "600, 6001" into [600, 6001] — order matters, duplicates don't."""
+    numbers = []
+    for part in re.findall(r"\d+", raw):
+        number = int(part)
+        if number not in numbers:
+            numbers.append(number)
+    return numbers
+
+
+@router.post("/settings/preferences")
+def save_preferences(
+    preferred_seats: str = Form(""),
+    preferred_group_rooms: str = Form(""),
+    auth: Auth = Depends(require_auth),
+):
+    """Seat preferences for the active ULB account (whose bookings use them)."""
+    if auth.account:
+        db.set_account_preferences(
+            auth.account.id,
+            _seat_numbers(preferred_seats),
+            _seat_numbers(preferred_group_rooms),
+        )
     return RedirectResponse(url="/settings", status_code=303)
 
 

@@ -14,6 +14,9 @@ def execute_booking(account, library_id: int, date: str, time_slot: str,
                     group_room: bool = False, preferred_section: str = "") -> dict:
     """Run a full booking flow for one ULB account (a ``db.Account``).
 
+    Which seats or rooms are tried first comes from the account's own
+    preferences, edited on the dashboard's settings page.
+
     Returns {"success": True, "seat_desc": "...", "message": "..."} on success.
     Raises BookingError on failure.
     """
@@ -25,7 +28,9 @@ def execute_booking(account, library_id: int, date: str, time_slot: str,
 
     timeslot_href = find_timeslot(session, library_id, date, time_slot,
                                   group_room=group_room, preferred_section=preferred_section)
-    seat_href, seat_desc = select_seat(session, timeslot_href, group_room=group_room)
+    preferred = account.preferred_group_rooms if group_room else account.preferred_seats
+    seat_href, seat_desc = select_seat(session, timeslot_href, group_room=group_room,
+                                       preferred=preferred or [])
     details = reserve_seat(session, seat_href)
     return {
         "success": True,

@@ -38,8 +38,10 @@
                placeholder="A12345678/X">
     </label>
 
-    <button type="submit">{{ "Save" if account else "Add account" }}</button>
-    <a href="/accounts" role="button" class="secondary outline">Cancel</a>
+    <div class="form-actions">
+        <button type="submit">{{ "Save" if account else "Add account" }}</button>
+        <a href="/accounts" role="button" class="secondary outline">Cancel</a>
+    </div>
 </form>
 
 {% if account %}
@@ -84,9 +86,13 @@
 
 <section>
     <h3>Danger zone</h3>
-    <form method="post" action="/accounts/{{ account.id }}/delete"
+    <p class="muted">
+        Deleting this account also removes its jobs, their timers and its
+        booking history. This cannot be undone.
+    </p>
+    <form class="form-actions" method="post" action="/accounts/{{ account.id }}/delete"
           onsubmit="return confirm('Delete this account? Its jobs, timers and booking history go with it.')">
-        <button type="submit" class="secondary">Delete account</button>
+        <button type="submit" class="danger">Delete account</button>
     </form>
 </section>
 {% endif %}

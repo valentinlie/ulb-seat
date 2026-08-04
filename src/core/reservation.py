@@ -2,13 +2,14 @@
 
 import logging
 import re
+from collections.abc import Sequence
 from datetime import datetime
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 
-from config import BASE_URL, PREFERRED_GROUP_ROOMS, PREFERRED_SEATS
+from config import BASE_URL
 from core.exceptions import BookingError
 
 log = logging.getLogger(__name__)
@@ -96,8 +97,13 @@ def find_timeslot(
         raise BookingError(f"No slots found for date {date_ddmmyyyy}. Check if reservations are available.")
 
 
-def select_seat(session: requests.Session, timeslot_href: str, group_room: bool = False) -> tuple[str, str]:
-    """Select the first available seat/room. Returns (seat_href, seat_description)."""
+def select_seat(session: requests.Session, timeslot_href: str, group_room: bool = False,
+                preferred: Sequence[int] = ()) -> tuple[str, str]:
+    """Select a seat/room. Returns (seat_href, seat_description).
+
+    ``preferred`` holds seat/room numbers to try in order (the account's seat
+    preferences); the first available one wins, otherwise any free seat does.
+    """
     slot_type = "group rooms" if group_room else "seats"
     log.info("[4/6] Fetching available %s...", slot_type)
 
@@ -127,16 +133,16 @@ def select_seat(session: requests.Session, timeslot_href: str, group_room: bool 
     log.info("  %d %s available.", len(seat_links), slot_type)
 
     # Try preferred seats/rooms first (match by number in description)
-    preferred_list = PREFERRED_GROUP_ROOMS if group_room else PREFERRED_SEATS
+    preferred_list = list(preferred)
     seat_by_number = {}
     for href, sid, desc in seat_links:
         m = re.search(r"(?:Platz|Kabine|Raum)\s+(\d+)", desc)
         if m:
             seat_by_number[int(m.group(1))] = (href, sid, desc)
 
-    for preferred in preferred_list:
-        if preferred in seat_by_number:
-            seat_href, seat_id, desc = seat_by_number[preferred]
+    for number in preferred_list:
+        if number in seat_by_number:
+            seat_href, seat_id, desc = seat_by_number[number]
             log.info("  Selected preferred %s: %s (ID=%d)", slot_type.rstrip('s'), desc, seat_id)
             return seat_href, desc
 

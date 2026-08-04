@@ -24,9 +24,14 @@
         table { font-size: 0.9rem; }
         .actions { white-space: nowrap; }
         .actions form, .actions a { display: inline; }
-        .actions button { margin: 0 0.15rem; padding: 0.25rem 0.5rem; font-size: 0.8rem; }
-        .switcher { display: inline; }
-        .switcher select { margin: 0; padding: 0.25rem 2rem 0.25rem 0.5rem; font-size: 0.85rem; width: auto; }
+        .actions button { margin: 0 0.15rem; padding: 0.25rem 0.5rem; font-size: 0.8rem; width: auto; }
+        /* Pico stretches submit buttons to full width; forms want them side by side. */
+        .form-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+        .form-actions button, .form-actions [role="button"] { width: auto; margin-bottom: 0; }
+        .danger { --pico-background-color: #a33; --pico-border-color: #a33; }
+        .danger:is(:hover, :active, :focus) { --pico-background-color: #922; --pico-border-color: #922; }
+        section { margin-top: 2.5rem; }
+        .current-account { font-size: 0.85rem; }
         .narrow { max-width: 30rem; margin: 3rem auto; }
         .token { font-family: monospace; word-break: break-all; font-size: 0.85rem; }
         .muted { color: var(--pico-muted-color); }
@@ -36,19 +41,11 @@
     <nav class="container-fluid">
         <ul>
             <li><strong>ULB Reservation Bot</strong></li>
-            {% if auth and auth.accounts %}
-            <li>
-                <form class="switcher" method="post" action="/accounts/switch">
-                    <select name="account_id" onchange="this.form.submit()"
-                            aria-label="Active ULB account">
-                        {% for account in auth.accounts %}
-                        <option value="{{ account.id }}"
-                                {% if auth.account and account.id == auth.account.id %}selected{% endif %}>
-                            {{ account.label }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </form>
+            {% if auth and auth.account %}
+            {# Switching happens on the Accounts page ("Use"); the nav only says
+               which account you are looking at. #}
+            <li class="muted current-account" title="Active ULB account">
+                {{ auth.account.label }}
             </li>
             {% endif %}
         </ul>

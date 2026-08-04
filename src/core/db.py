@@ -73,6 +73,8 @@ class Account:
     sso_username: str
     sso_password_enc: str
     library_number: str
+    preferred_seats: list[int]
+    preferred_group_rooms: list[int]
     created_at: datetime
 
     @property
@@ -176,13 +178,20 @@ def init_db() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ulb_accounts (
-                id                SERIAL PRIMARY KEY,
-                label             VARCHAR(100) NOT NULL,
-                sso_username      VARCHAR(255) NOT NULL,
-                sso_password_enc  TEXT NOT NULL,
-                library_number    VARCHAR(100) NOT NULL,
-                created_at        TIMESTAMPTZ NOT NULL
+                id                     SERIAL PRIMARY KEY,
+                label                  VARCHAR(100) NOT NULL,
+                sso_username           VARCHAR(255) NOT NULL,
+                sso_password_enc       TEXT NOT NULL,
+                library_number         VARCHAR(100) NOT NULL,
+                preferred_seats        INTEGER[] NOT NULL DEFAULT '{}',
+                preferred_group_rooms  INTEGER[] NOT NULL DEFAULT '{}',
+                created_at             TIMESTAMPTZ NOT NULL
             )
+        """)
+        conn.execute("""
+            ALTER TABLE ulb_accounts
+                ADD COLUMN IF NOT EXISTS preferred_seats INTEGER[] NOT NULL DEFAULT '{}',
+                ADD COLUMN IF NOT EXISTS preferred_group_rooms INTEGER[] NOT NULL DEFAULT '{}'
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ulb_account_members (
@@ -452,6 +461,17 @@ def update_account(account_id: int, label: str, sso_username: str,
                 "UPDATE ulb_accounts SET label=%s, sso_username=%s, library_number=%s WHERE id=%s",
                 (label, sso_username, library_number, account_id),
             )
+
+
+def set_account_preferences(account_id: int, preferred_seats: list[int],
+                            preferred_group_rooms: list[int]) -> None:
+    """Set the seat/room numbers this account's bookings try first, in order."""
+    with _pool.connection() as conn:
+        conn.execute(
+            """UPDATE ulb_accounts SET preferred_seats=%s, preferred_group_rooms=%s
+               WHERE id=%s""",
+            (preferred_seats, preferred_group_rooms, account_id),
+        )
 
 
 def delete_account(account_id: int) -> None:

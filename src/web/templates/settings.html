@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set active_page = "settings" %}
 
-{% block title %}Your passkeys - ULB Reservation{% endblock %}
+{% block title %}Settings - ULB Reservation{% endblock %}
 
 {% block content %}
 <h2>{{ auth.user.display_name }}</h2>
@@ -17,6 +17,45 @@
         <button type="submit" class="secondary">Rename</button>
     </fieldset>
 </form>
+
+<section>
+    <h3>Seat preferences</h3>
+    {% if auth.account %}
+    <p class="muted">
+        Seat and room numbers to try first, in order, when booking with
+        <strong>{{ auth.account.label }}</strong>. If none of them are free, any
+        available seat is taken instead. Leave blank to always take the first
+        available one.
+    </p>
+    <form method="post" action="/settings/preferences">
+        <label for="preferred_seats">
+            Preferred seats
+            <input type="text" id="preferred_seats" name="preferred_seats"
+                   value="{{ auth.account.preferred_seats | join(', ') }}"
+                   placeholder="e.g. 600, 6001"
+                   pattern="[0-9,;\s]*">
+        </label>
+
+        <label for="preferred_group_rooms">
+            Preferred group rooms
+            <input type="text" id="preferred_group_rooms" name="preferred_group_rooms"
+                   value="{{ auth.account.preferred_group_rooms | join(', ') }}"
+                   placeholder="e.g. 3, 4"
+                   pattern="[0-9,;\s]*">
+            <small>Used by jobs that book a group room.</small>
+        </label>
+
+        <div class="form-actions">
+            <button type="submit" class="secondary">Save preferences</button>
+        </div>
+    </form>
+    {% else %}
+    <p class="muted">
+        Seat preferences belong to a ULB account.
+        <a href="/accounts/new">Add one</a> to set them.
+    </p>
+    {% endif %}
+</section>
 
 <section>
     <h3>Your passkeys</h3>
@@ -46,7 +85,9 @@
         </tbody>
     </table>
 
-    <button id="add-passkey-btn" type="button" class="secondary">Add another device</button>
+    <div class="form-actions">
+        <button id="add-passkey-btn" type="button" class="secondary">Add another device</button>
+    </div>
     <p><small class="muted">
         Register a passkey on your phone or laptop so you can still sign in if
         you lose this device.

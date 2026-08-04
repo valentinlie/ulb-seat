@@ -89,7 +89,9 @@
         </div>
     </div>
 
-    <button type="submit">{{ "Update" if job else "Create" }} Job</button>
-    <a href="/jobs" role="button" class="secondary">Cancel</a>
+    <div class="form-actions">
+        <button type="submit">{{ "Update" if job else "Create" }} Job</button>
+        <a href="/jobs" role="button" class="secondary outline">Cancel</a>
+    </div>
 </form>
 {% endblock %}
