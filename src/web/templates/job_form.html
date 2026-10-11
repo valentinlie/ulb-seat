@@ -1,26 +1,40 @@
 {% extends "base.html" %}
 {% set active_page = "jobs" %}
+{% set editing = job and job.id %}
 
-{% block title %}{{ "Edit" if job else "New" }} Job - ULB Reservation{% endblock %}
+{% block title %}{{ "Edit" if editing else "New" }} Job - ULB Reservation{% endblock %}
 
 {% block content %}
-<h2>{{ "Edit" if job else "New" }} Job</h2>
+<h2>{{ "Edit" if editing else "New" }} Job</h2>
 
-<form method="post" action="{{ '/jobs/' ~ job.id if job else '/jobs' }}">
+{% if error %}<div role="alert" class="alert-error">{{ error }}</div>{% endif %}
+
+<form method="post" action="{{ '/jobs/' ~ job.id if editing else '/jobs' }}">
     <label for="name">Job Name
         <input type="text" id="name" name="name" value="{{ job.name if job else '' }}" required placeholder="e.g. Morning seat Zentralbib">
     </label>
 
-    <label for="library_id">Library
-        <select id="library_id" name="library_id" required>
-            {% for lid, lname in libraries.items()|sort %}
-            <option value="{{ lid }}" {{ "selected" if job and job.library_id == lid }}>{{ lname }}</option>
-            {% endfor %}
-        </select>
-    </label>
+    <div class="grid">
+        <label for="library_id">Library
+            <select id="library_id" name="library_id" required>
+                {% for lid, lname in libraries.items()|sort %}
+                <option value="{{ lid }}" {{ "selected" if job and job.library_id == lid }}>{{ lname }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label for="category">What
+            <select id="category" name="category">
+                {% for cid, cname in categories.items() %}
+                <option value="{{ cid }}" {{ "selected" if job and job.category == cid }}>{{ cname }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </div>
 
     <label for="time_slot">Time Slot
-        <input type="text" id="time_slot" name="time_slot" value="{{ job.time_slot if job else '' }}" required placeholder="08:00-12:00">
+        <input type="text" id="time_slot" name="time_slot" value="{{ job.time_slot if job else '' }}" required placeholder="08:00-12:00" pattern="\s*\d{1,2}:00\s*-\s*\d{1,2}:00\s*">
+        <small>Any whole hours, e.g. 08:00-12:00. Costs 60 points per hour (3,600 points and 10 bookings per week; same-day bookings are free).</small>
     </label>
 
     <label for="preferred_section">Preferred section (optional)
@@ -28,12 +42,10 @@
         <small>Keyword matched against the section heading (e.g. "Hauptlesesaal", "Westfalica"). If empty or no match, first available is used.</small>
     </label>
 
-    <fieldset>
-        <label>
-            <input type="checkbox" name="group_room" value="true" {{ "checked" if job and job.group_room }}>
-            Group room (Arbeitskabine)
-        </label>
-    </fieldset>
+    <label for="preferred_seats">Preferred seats (optional)
+        <input type="text" id="preferred_seats" name="preferred_seats" value="{{ job.preferred_seats | join(', ') if job else '' }}" placeholder="e.g. 627, 541" pattern="[0-9,;\s]*">
+        <small>Seat or room numbers to try first, in order: the number the name ends with (302 for "Platz 302", 2 for "Kabine G2"). If empty or none is free, a random free one is booked.</small>
+    </label>
 
     <fieldset>
         <legend>Job Type</legend>
@@ -56,18 +68,6 @@
             <input type="text" id="cron_days" name="cron_days" value="{{ job.cron_days if job and job.cron_days else 'mon,tue,wed,thu,fri' }}" placeholder="mon,tue,wed,thu,fri">
         </label>
         <small>Comma-separated: mon,tue,wed,thu,fri,sat,sun</small>
-        <div class="grid">
-            <label for="date_offset">Days in advance (offset)
-                <input type="number" id="date_offset" name="date_offset" min="0" max="14" value="{{ job.date_offset if job and job.date_offset is not none else 2 }}">
-                <small>E.g. 3 = book 3 days ahead. The job triggers automatically on the right day.</small>
-            </label>
-            <label for="cron_hour">Trigger hour
-                <input type="number" id="cron_hour" name="cron_hour" min="0" max="23" value="{{ job.cron_hour if job and job.cron_hour is not none else 0 }}">
-            </label>
-            <label for="cron_minute">Trigger minute
-                <input type="number" id="cron_minute" name="cron_minute" min="0" max="59" value="{{ job.cron_minute if job and job.cron_minute is not none else 0 }}">
-            </label>
-        </div>
     </div>
 
     <div id="oneshot-fields" style="{{ '' if job and not job.recurring else 'display:none' }}">
@@ -75,22 +75,12 @@
             <input type="text" id="target_date" name="target_date" value="{{ job.target_date.strftime('%d.%m.%Y') if job and job.target_date else '' }}" placeholder="19.02.2026">
             <small>The date you want the seat/room for.</small>
         </label>
-        <label for="run_date">Trigger Date (DD.MM.YYYY)
-            <input type="text" id="run_date" name="run_date" value="{{ job.run_date if job and job.run_date else '' }}" placeholder="17.02.2026">
-            <small>When the bot should attempt the booking.</small>
-        </label>
-        <div class="grid">
-            <label for="run_hour">Trigger hour
-                <input type="number" id="run_hour" name="run_hour" min="0" max="23" value="{{ job.run_hour if job and job.run_hour is not none else 0 }}">
-            </label>
-            <label for="run_minute">Trigger minute
-                <input type="number" id="run_minute" name="run_minute" min="0" max="59" value="{{ job.run_minute if job and job.run_minute is not none else 0 }}">
-            </label>
-        </div>
     </div>
 
+    <p><small class="muted">Every job books the moment the ULB opens its date: {{ opening }}.</small></p>
+
     <div class="form-actions">
-        <button type="submit">{{ "Update" if job else "Create" }} Job</button>
+        <button type="submit">{{ "Update" if editing else "Create" }} Job</button>
         <a href="/jobs" role="button" class="secondary outline">Cancel</a>
     </div>
 </form>

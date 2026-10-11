@@ -91,7 +91,7 @@ def require_auth(request: Request) -> Auth:
 def require_account(auth: Auth = Depends(require_auth)) -> Auth:
     """For pages that act on a ULB account — send the user to create one first."""
     if auth.account is None:
-        raise _redirect("/accounts")
+        raise _redirect("/settings")
     return auth
 
 

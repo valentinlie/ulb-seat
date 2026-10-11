@@ -2,7 +2,6 @@
 
 import json
 import logging
-import re
 import secrets
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -10,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from webauthn.helpers import base64url_to_bytes
 
+from config import LIBRARIES
 from core import db
 from web import ctx, templates
 from web import passkeys
@@ -85,7 +85,7 @@ def login_verify(body: CeremonyFinish):
     accounts = db.get_accounts_for_user(stored.user_id)
     token = db.create_session(stored.user_id, accounts[0].id if accounts else None)
 
-    response = JSONResponse({"redirect": "/" if accounts else "/accounts"})
+    response = JSONResponse({"redirect": "/" if accounts else "/settings"})
     set_session_cookie(response, token)
     return response
 
@@ -162,19 +162,16 @@ def register_verify(body: CeremonyFinish):
         credential_id=result.credential_id,
         public_key=result.credential_public_key,
         sign_count=result.sign_count,
-        name=body.name or passkeys.describe_authenticator(credential),
+        name=(body.name or "").strip()[:100] or passkeys.describe_authenticator(credential),
     )
-    if invite.account_id:
-        db.add_member(invite.account_id, user_id)
-
     accounts = db.get_accounts_for_user(user_id)
     token = db.create_session(user_id, accounts[0].id if accounts else None)
-    response = JSONResponse({"redirect": "/" if accounts else "/accounts"})
+    response = JSONResponse({"redirect": "/" if accounts else "/settings"})
     set_session_cookie(response, token)
     return response
 
 
-# ── Managing your own passkeys ───────────────────────────────────────────────
+# ── Settings: accounts, libraries, passkeys ───────────────────────────────────────────────
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings(request: Request, auth: Auth = Depends(require_auth)):
@@ -191,29 +188,11 @@ def rename_self(display_name: str = Form(...), auth: Auth = Depends(require_auth
     return RedirectResponse(url="/settings", status_code=303)
 
 
-def _seat_numbers(raw: str) -> list[int]:
-    """Parse "600, 6001" into [600, 6001] — order matters, duplicates don't."""
-    numbers = []
-    for part in re.findall(r"\d+", raw):
-        number = int(part)
-        if number not in numbers:
-            numbers.append(number)
-    return numbers
-
-
-@router.post("/settings/preferences")
-def save_preferences(
-    preferred_seats: str = Form(""),
-    preferred_group_rooms: str = Form(""),
-    auth: Auth = Depends(require_auth),
-):
-    """Seat preferences for the active ULB account (whose bookings use them)."""
-    if auth.account:
-        db.set_account_preferences(
-            auth.account.id,
-            _seat_numbers(preferred_seats),
-            _seat_numbers(preferred_group_rooms),
-        )
+@router.post("/settings/libraries")
+async def save_libraries(request: Request, auth: Auth = Depends(require_auth)):
+    """Which libraries the booking pages show, for all of the user's accounts."""
+    shown = (await request.form()).getlist("shown")
+    db.set_hidden_libraries(auth.user.id, [n for n in LIBRARIES.values() if n not in shown])
     return RedirectResponse(url="/settings", status_code=303)
 
 
@@ -245,7 +224,7 @@ def add_passkey_verify(body: CeremonyFinish, auth: Auth = Depends(require_auth))
         credential_id=result.credential_id,
         public_key=result.credential_public_key,
         sign_count=result.sign_count,
-        name=body.name or passkeys.describe_authenticator(credential),
+        name=(body.name or "").strip()[:100] or passkeys.describe_authenticator(credential),
     )
     return JSONResponse({"redirect": "/settings"})
 

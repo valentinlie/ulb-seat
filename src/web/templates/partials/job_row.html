@@ -2,12 +2,13 @@
     <td>{{ job.id }}</td>
     <td><a href="/jobs/{{ job.id }}/edit">{{ job.name }}</a></td>
     <td>{{ libraries.get(job.library_id, job.library_id) }}</td>
-    <td>{{ job.time_slot }}{% if job.group_room %} (Group){% endif %}</td>
+    <td>{{ job.time_slot }}{% if job.category != 1 %} ({{ categories.get(job.category, job.category) }}){% endif %}</td>
     <td>
         {% if job.recurring %}
-            for {{ job.cron_days }} (+{{ job.date_offset }}d) at {{ "%02d"|format(job.cron_hour) }}:{{ "%02d"|format(job.cron_minute) }}
-        {% else %}
-            {% if job.target_date %}{{ job.target_date.strftime("%d.%m.%Y") }}{% endif %}{% if job.run_at %} @ {{ job.run_at.strftime("%d.%m.%Y %H:%M") }}{% endif %}
+            every {{ job.cron_days }}
+        {% elif job.target_date %}
+            {{ job.target_date.strftime("%d.%m.%Y") }}
+            <small class="muted">(books {{ opens_at(job.target_date).strftime("%d.%m. %H:%M") }})</small>
         {% endif %}
     </td>
     <td>

@@ -15,10 +15,10 @@
         {% for b in bookings %}
         <tr>
             <td>{{ b.started_at.strftime("%d.%m.%Y %H:%M") }}</td>
-            <td>{{ b.job_name or "Manual" }}{% if b.manual %} (manual){% endif %}</td>
-            <td>{{ libraries.get(b.library_id, b.library_id) }}</td>
+            <td>{{ b.job_name or "Booked live" }}{% if b.manual and b.job_name %} (run now){% endif %}</td>
+            <td>{{ libraries.get(b.library_id, "—") }}</td>
             <td>{{ b.target_date.strftime("%d.%m.%Y") }}</td>
-            <td>{{ b.time_slot }}</td>
+            <td>{{ b.time_slot }}{% if b.category != 1 %} ({{ categories.get(b.category, b.category) }}){% endif %}</td>
             <td>
                 <span class="badge badge-{{ b.status }}">{{ b.status }}</span>
             </td>

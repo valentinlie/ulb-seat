@@ -7,7 +7,20 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <style>
-        nav ul li a.active { font-weight: bold; text-decoration: underline; }
+        /* header */
+        .site-header { position: sticky; top: 0; z-index: 10; background: var(--pico-background-color);
+            border-bottom: 1px solid var(--pico-muted-border-color); box-shadow: 0 1px 8px rgba(0,0,0,0.04); margin-bottom: 1.5rem; }
+        .site-header nav { flex-wrap: wrap; }
+        .brand { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; color: var(--pico-color); font-weight: 700; letter-spacing: -0.01em; }
+        .brand-logo { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 0.5rem;
+            background: linear-gradient(135deg, var(--pico-primary), #4b2e83); color: #fff; font-size: 1rem; }
+        .current-account { font-size: 0.8rem; padding: 0.15rem 0.6rem; border-radius: 999px;
+            background: var(--pico-secondary-background); color: var(--pico-secondary-inverse); opacity: 0.85; }
+        .site-header nav a:not(.brand) { border-radius: 999px; padding: 0.35rem 0.8rem; text-decoration: none; color: var(--pico-muted-color); }
+        .site-header nav a:not(.brand):hover { color: var(--pico-color); background: rgba(127,127,127,0.1); }
+        .site-header nav a.active { color: var(--pico-primary-inverse); background: var(--pico-primary-background); font-weight: 600; }
+        .site-header nav form { margin: 0; }
+        .site-header nav button { padding: 0.35rem 0.8rem; font-size: 0.85rem; margin: 0; }
         .alert-success { color: #2a7a2a; background: #e6f4e6; padding: 0.5rem 1rem; border-radius: 4px; margin: 0.5rem 0; }
         .alert-error { color: #a33; background: #fde8e8; padding: 0.5rem 1rem; border-radius: 4px; margin: 0.5rem 0; }
         .htmx-indicator { display: none; }
@@ -31,34 +44,48 @@
         .danger { --pico-background-color: #a33; --pico-border-color: #a33; }
         .danger:is(:hover, :active, :focus) { --pico-background-color: #922; --pico-border-color: #922; }
         section { margin-top: 2.5rem; }
-        .current-account { font-size: 0.85rem; }
         .narrow { max-width: 30rem; margin: 3rem auto; }
         .token { font-family: monospace; word-break: break-all; font-size: 0.85rem; }
         .muted { color: var(--pico-muted-color); }
+        /* live view */
+        .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+        .chips button, .chips [role="button"] { width: auto; margin: 0; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+        .days { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+        .days article { margin: 0; }
+        .days ul { padding-left: 0; } .days li { list-style: none; margin-bottom: 0.6rem; }
+        .reservation { padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+        .reservation .chips { margin: 0.5rem 0 0; }
+        .preferred { --pico-background-color: #2a7a2a; --pico-border-color: #2a7a2a; }
+        /* weekly points bar: solid = left after enabled jobs, striped = what the jobs would use */
+        .points { margin-bottom: 1rem; }
+        .points-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem; margin-bottom: 0.3rem; }
+        .bar { position: relative; height: 1rem; border-radius: 999px; overflow: hidden; background: var(--pico-muted-border-color); }
+        .bar > div { position: absolute; inset: 0 auto 0 0; transition: width 0.3s; }
+        .bar-planned { background: repeating-linear-gradient(45deg, var(--pico-primary-background) 0 6px, transparent 6px 12px); opacity: 0.5; }
+        .bar-after { background: var(--pico-primary-background); }
+        .points-over { color: #a33; }
     </style>
 </head>
 <body>
-    <nav class="container-fluid">
+    <header class="site-header">
+    <nav class="container">
         <ul>
-            <li><strong>ULB Reservation Bot</strong></li>
+            <li><a href="/" class="brand"><span class="brand-logo" aria-hidden="true">📚</span>ULB Reservation Bot</a></li>
             {% if auth and auth.account %}
-            {# Switching happens on the Accounts page ("Use"); the nav only says
+            {# Switching happens on the Settings page ("Use"); the nav only says
                which account you are looking at. #}
-            <li class="muted current-account" title="Active ULB account">
-                {{ auth.account.label }}
-            </li>
+            <li><span class="current-account" title="Active ULB account">{{ auth.account.label }}</span></li>
             {% endif %}
         </ul>
         {% if auth %}
         <ul>
-            <li><a href="/" {% if active_page == "dashboard" %}class="active"{% endif %}>Dashboard</a></li>
+            <li><a href="/" {% if active_page == "book" %}class="active"{% endif %}>Dashboard</a></li>
             <li><a href="/jobs" {% if active_page == "jobs" %}class="active"{% endif %}>Jobs</a></li>
             <li><a href="/history" {% if active_page == "history" %}class="active"{% endif %}>History</a></li>
-            <li><a href="/accounts" {% if active_page == "accounts" %}class="active"{% endif %}>Accounts</a></li>
             {% if auth.is_admin %}
             <li><a href="/admin" {% if active_page == "admin" %}class="active"{% endif %}>Admin</a></li>
             {% endif %}
-            <li><a href="/settings" {% if active_page == "settings" %}class="active"{% endif %}>{{ auth.user.display_name }}</a></li>
+            <li><a href="/settings" {% if active_page == "settings" %}class="active"{% endif %}>Settings</a></li>
             <li>
                 <form method="post" action="/logout">
                     <button type="submit" class="secondary outline">Log out</button>
@@ -67,6 +94,7 @@
         </ul>
         {% endif %}
     </nav>
+    </header>
     <main class="container">
         {% block content %}{% endblock %}
     </main>

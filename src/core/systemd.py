@@ -2,8 +2,9 @@
 
 Scale-to-zero, same shape as the Zara checker:
 
-- Each enabled job gets a ``ulb-book@<id>.timer`` whose ``OnCalendar`` is
-  computed from the job's schedule. It fires the template service
+- Each enabled job gets a ``ulb-book@<id>.timer`` that fires when the ULB
+  opens its target date for booking (09:00, three days ahead — see
+  ``core.booking``). It fires the template service
   ``ulb-book@<id>.service`` (a ``oneshot`` running ``cli.py run-job <id>``),
   so nothing of ours runs until a booking is actually due.
 - ``ulb-web.socket`` socket-activates ``ulb-web.service`` on the first HTTP
@@ -21,6 +22,7 @@ from pathlib import Path
 
 from config import PORT
 from core import db
+from core.booking import DAYS_AHEAD, OPENS_AT, opens_at
 
 log = logging.getLogger(__name__)
 
@@ -56,32 +58,26 @@ def _timer_name(job_id: int) -> str:
     return f"ulb-book@{job_id}.timer"
 
 
-def _target_days_to_trigger_days(target_days: str, date_offset: int) -> list[str]:
-    """Days the user wants a seat → days the timer should fire (subtract offset).
+def trigger_days(target_days: str) -> list[str]:
+    """Days the user wants a seat → days the timer fires (DAYS_AHEAD earlier).
 
-    Example: target "mon", offset 3 → fire on "fri" (book 3 days ahead).
+    Example: target "mon" → fire on "fri" (bookings open 3 days ahead).
     """
     trigger = []
     for day in target_days.split(","):
         day = day.strip().lower()
-        if day not in DAY_INDEX:
-            continue
-        trigger.append(DAY_NAMES[(DAY_INDEX[day] - date_offset) % 7])
+        if day in DAY_INDEX:
+            trigger.append(DAY_NAMES[(DAY_INDEX[day] - DAYS_AHEAD) % 7])
     return trigger or ["mon", "tue", "wed", "thu", "fri"]
 
 
 def _on_calendar(job: db.Job) -> str | None:
     """Build the systemd OnCalendar= value for a job, or None if unschedulable."""
     if job.recurring:
-        days = _target_days_to_trigger_days(
-            job.cron_days or "mon,tue,wed,thu,fri", job.date_offset or 0
-        )
-        day_spec = ",".join(SYSTEMD_DAY[d] for d in days)
-        hour = job.cron_hour or 0
-        minute = job.cron_minute or 0
-        return f"{day_spec} *-*-* {hour:02d}:{minute:02d}:00"
-    if job.run_at:
-        return job.run_at.strftime("%Y-%m-%d %H:%M:00")
+        day_spec = ",".join(SYSTEMD_DAY[d] for d in trigger_days(job.cron_days or ""))
+        return f"{day_spec} *-*-* {OPENS_AT:%H:%M}:00"
+    if job.target_date:
+        return f"{opens_at(job.target_date):%Y-%m-%d %H:%M}:00"
     return None
 
 

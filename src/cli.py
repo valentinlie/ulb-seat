@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 WEB_SOCKET = "ulb-web.socket"
+CLI_CATEGORIES = {"seat": 1, "table": 3, "room": 4}  # --category -> the site's cat_id
 WEB_SERVICE = "ulb-web.service"
 
 
@@ -74,6 +75,7 @@ def cmd_book(args: argparse.Namespace) -> int:
     from core import db
     from core.booking import execute_booking
     from core.exceptions import BookingError
+    from core.reservation import CATEGORIES
 
     if args.date_offset is not None:
         args.date = (date.today() + timedelta(days=args.date_offset)).strftime("%d.%m.%Y")
@@ -90,14 +92,14 @@ def cmd_book(args: argparse.Namespace) -> int:
     if account is None:
         return 1
 
-    booking_type = "group room" if args.group_room else "seat"
+    category = CLI_CATEGORIES[args.category]
     print(f"Account: {account.label} ({account.sso_username})")
-    print(f"Target: {LIBRARIES[args.library]} (ID={args.library}), type: {booking_type}")
+    print(f"Target: {LIBRARIES[args.library]} (ID={args.library}), type: {CATEGORIES[category]}")
     print(f"Date: {args.date}, Time: {args.time}")
 
     try:
         result = execute_booking(account, args.library, args.date, args.time,
-                                 group_room=args.group_room, preferred_section=args.section)
+                                 category=category, preferred_section=args.section)
         print(f"\nBooking successful: {result['message']}")
         return 0
     except BookingError as e:
@@ -125,13 +127,14 @@ def cmd_jobs(_: argparse.Namespace) -> int:
         return 0
 
     labels = {a.id: a.label for a in db.get_all_accounts()}
-    print(f"{'ID':>4}  {'ON':<3} {'TYPE':<9} {'ACCOUNT':<16} {'LIBRARY':<8} {'TIME':<12} NAME")
+    cats = {v: k for k, v in CLI_CATEGORIES.items()}
+    print(f"{'ID':>4}  {'ON':<3} {'TYPE':<9} {'ACCOUNT':<16} {'LIBRARY':<8} {'KIND':<5} {'TIME':<12} NAME")
     for job in jobs:
         on = "yes" if job.enabled else "-"
         kind = "recurring" if job.recurring else "one-shot"
         account = labels.get(job.account_id, "—")[:16]
         print(f"{job.id:>4}  {on:<3} {kind:<9} {account:<16} "
-              f"{job.library_id:<8} {job.time_slot:<12} {job.name}")
+              f"{job.library_id:<8} {cats.get(job.category, '?'):<5} {job.time_slot:<12} {job.name}")
     return 0
 
 
@@ -184,11 +187,10 @@ def cmd_accounts(_: argparse.Namespace) -> int:
     if not accounts:
         print("No ULB accounts yet. Add one in the dashboard.")
         return 0
-    print(f"{'ID':>4}  {'SSO USER':<20} {'CARD':<16} {'MEMBERS':<24} LABEL")
+    print(f"{'ID':>4}  {'SSO USER':<20} {'CARD':<16} LABEL")
     for account in accounts:
-        members = ", ".join(u.display_name for u in db.get_members(account.id)) or "—"
         print(f"{account.id:>4}  {account.sso_username:<20} "
-              f"{account.library_number:<16} {members[:24]:<24} {account.label}")
+              f"{account.library_number:<16} {account.label}")
     return 0
 
 
@@ -277,8 +279,9 @@ def main() -> int:
     g.add_argument("--date", help="Reservation date (DD.MM.YYYY)")
     g.add_argument("--date-offset", type=int, help="Book for N days from today")
     p_book.add_argument("--time", required=True, help='Time slot (e.g. "08:00-12:00")')
-    p_book.add_argument("--group-room", action="store_true",
-                        help="Book a group room instead of a seat")
+    p_book.add_argument("--category", choices=CLI_CATEGORIES, default="seat",
+                        help="seat (Einzelarbeitsplatz, default), table (Gruppenarbeitstisch) "
+                             "or room (Gruppenarbeitsraum)")
     p_book.add_argument("--section", default="",
                         help='Preferred section keyword (falls back to any available)')
     p_book.add_argument("--account", default=None,

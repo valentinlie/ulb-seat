@@ -6,8 +6,8 @@ different things:
 - a **user** is a person, identified by one or more **passkeys** (phone, laptop);
 - an **account** is a ULB/SSO identity (username, password, library card) that
   jobs and bookings belong to;
-- **membership** links the two many-to-many, so one passkey login can manage
-  several accounts and one account can be shared with several people.
+- **membership** links each account to the one user who owns it; a user can
+  own several accounts.
 """
 
 import hashlib
@@ -52,6 +52,7 @@ class User:
     handle: bytes
     is_admin: bool
     created_at: datetime
+    hidden_libraries: list[str]
 
 
 @dataclass
@@ -73,8 +74,6 @@ class Account:
     sso_username: str
     sso_password_enc: str
     library_number: str
-    preferred_seats: list[int]
-    preferred_group_rooms: list[int]
     created_at: datetime
 
     @property
@@ -103,21 +102,14 @@ class Job:
     name: str
     library_id: int
     time_slot: str
-    group_room: bool
+    category: int
     preferred_section: str | None
     recurring: bool
     cron_days: str | None
-    date_offset: int | None
-    cron_hour: int | None
-    cron_minute: int | None
-    run_at: datetime | None
     target_date: date | None
     enabled: bool
     created_at: datetime
-    # form-only fields, filled by the edit route from run_at (not DB columns)
-    run_date: str = ""
-    run_hour: int = 0
-    run_minute: int = 0
+    preferred_seats: list[int]
 
 
 @dataclass
@@ -129,7 +121,7 @@ class Booking:
     library_id: int
     target_date: date
     time_slot: str
-    group_room: bool
+    category: int
     status: str
     seat_desc: str | None
     message: str | None
@@ -161,8 +153,13 @@ def init_db() -> None:
                 display_name    VARCHAR(100) NOT NULL,
                 handle          BYTEA NOT NULL UNIQUE,
                 is_admin        BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at      TIMESTAMPTZ NOT NULL
+                created_at      TIMESTAMPTZ NOT NULL,
+                hidden_libraries TEXT[] NOT NULL DEFAULT '{}'
             )
+        """)
+        conn.execute("""
+            ALTER TABLE ulb_users
+                ADD COLUMN IF NOT EXISTS hidden_libraries TEXT[] NOT NULL DEFAULT '{}'
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ulb_credentials (
@@ -183,15 +180,8 @@ def init_db() -> None:
                 sso_username           VARCHAR(255) NOT NULL,
                 sso_password_enc       TEXT NOT NULL,
                 library_number         VARCHAR(100) NOT NULL,
-                preferred_seats        INTEGER[] NOT NULL DEFAULT '{}',
-                preferred_group_rooms  INTEGER[] NOT NULL DEFAULT '{}',
                 created_at             TIMESTAMPTZ NOT NULL
             )
-        """)
-        conn.execute("""
-            ALTER TABLE ulb_accounts
-                ADD COLUMN IF NOT EXISTS preferred_seats INTEGER[] NOT NULL DEFAULT '{}',
-                ADD COLUMN IF NOT EXISTS preferred_group_rooms INTEGER[] NOT NULL DEFAULT '{}'
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ulb_account_members (
@@ -242,18 +232,19 @@ def init_db() -> None:
                 name            VARCHAR(255) NOT NULL,
                 library_id      INT NOT NULL,
                 time_slot       VARCHAR(50) NOT NULL,
-                group_room      BOOLEAN NOT NULL DEFAULT FALSE,
+                category        INT NOT NULL DEFAULT 1,
                 preferred_section VARCHAR(255),
                 recurring       BOOLEAN NOT NULL DEFAULT FALSE,
                 cron_days       VARCHAR(100),
-                date_offset     INT,
-                cron_hour       INT,
-                cron_minute     INT,
-                run_at          TIMESTAMPTZ,
                 target_date     DATE,
                 enabled         BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at      TIMESTAMPTZ NOT NULL
+                created_at      TIMESTAMPTZ NOT NULL,
+                preferred_seats INTEGER[] NOT NULL DEFAULT '{}'
             )
+        """)
+        conn.execute("""
+            ALTER TABLE ulb_jobs
+                ADD COLUMN IF NOT EXISTS preferred_seats INTEGER[] NOT NULL DEFAULT '{}'
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ulb_booking_log (
@@ -264,7 +255,7 @@ def init_db() -> None:
                 library_id      INT NOT NULL,
                 target_date     DATE NOT NULL,
                 time_slot       VARCHAR(50) NOT NULL,
-                group_room      BOOLEAN NOT NULL DEFAULT FALSE,
+                category        INT NOT NULL DEFAULT 1,
                 status          VARCHAR(20) NOT NULL,
                 seat_desc       VARCHAR(255),
                 message         TEXT,
@@ -272,6 +263,49 @@ def init_db() -> None:
                 finished_at     TIMESTAMPTZ,
                 manual          BOOLEAN NOT NULL DEFAULT FALSE
             )
+        """)
+        # October 2026 site rework: a booking category (1 seat, 3 group table,
+        # 4 group room) replaces the group_room flag, and every job now fires
+        # when the ULB opens the date, so per-job trigger times are gone.
+        conn.execute("""
+            DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_schema = current_schema()
+                             AND table_name = 'ulb_jobs' AND column_name = 'group_room') THEN
+                    ALTER TABLE ulb_jobs ADD COLUMN IF NOT EXISTS category INT NOT NULL DEFAULT 1;
+                    UPDATE ulb_jobs SET category = 4 WHERE group_room;
+                    ALTER TABLE ulb_jobs DROP COLUMN group_room, DROP COLUMN date_offset,
+                        DROP COLUMN cron_hour, DROP COLUMN cron_minute, DROP COLUMN run_at;
+                END IF;
+                IF EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_schema = current_schema()
+                             AND table_name = 'ulb_booking_log' AND column_name = 'group_room') THEN
+                    ALTER TABLE ulb_booking_log ADD COLUMN IF NOT EXISTS category INT NOT NULL DEFAULT 1;
+                    UPDATE ulb_booking_log SET category = 4 WHERE group_room;
+                    ALTER TABLE ulb_booking_log DROP COLUMN group_room;
+                END IF;
+                -- Seat preferences moved from the account onto each job, and
+                -- the library filter from the account onto the user.
+                IF EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_schema = current_schema()
+                             AND table_name = 'ulb_accounts' AND column_name = 'preferred_seats') THEN
+                    UPDATE ulb_jobs j SET preferred_seats = CASE WHEN j.category = 1
+                        THEN a.preferred_seats ELSE a.preferred_group_rooms END
+                    FROM ulb_accounts a WHERE a.id = j.account_id;
+                    ALTER TABLE ulb_accounts DROP COLUMN preferred_seats,
+                        DROP COLUMN preferred_group_rooms;
+                END IF;
+                IF EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_schema = current_schema()
+                             AND table_name = 'ulb_accounts' AND column_name = 'hidden_libraries') THEN
+                    UPDATE ulb_users u SET hidden_libraries = (
+                        SELECT a.hidden_libraries FROM ulb_accounts a
+                        JOIN ulb_account_members m ON m.account_id = a.id
+                        WHERE m.user_id = u.id ORDER BY a.id LIMIT 1)
+                    WHERE EXISTS (SELECT 1 FROM ulb_account_members m WHERE m.user_id = u.id);
+                    ALTER TABLE ulb_accounts DROP COLUMN hidden_libraries;
+                END IF;
+            END $$
         """)
 
 
@@ -463,15 +497,11 @@ def update_account(account_id: int, label: str, sso_username: str,
             )
 
 
-def set_account_preferences(account_id: int, preferred_seats: list[int],
-                            preferred_group_rooms: list[int]) -> None:
-    """Set the seat/room numbers this account's bookings try first, in order."""
+def set_hidden_libraries(user_id: int, hidden: list[str]) -> None:
+    """Library names this user does not want to see when booking (all accounts)."""
     with _pool.connection() as conn:
-        conn.execute(
-            """UPDATE ulb_accounts SET preferred_seats=%s, preferred_group_rooms=%s
-               WHERE id=%s""",
-            (preferred_seats, preferred_group_rooms, account_id),
-        )
+        conn.execute("UPDATE ulb_users SET hidden_libraries=%s WHERE id=%s",
+                     (hidden, user_id))
 
 
 def delete_account(account_id: int) -> None:
@@ -479,48 +509,12 @@ def delete_account(account_id: int) -> None:
         conn.execute("DELETE FROM ulb_accounts WHERE id = %s", (account_id,))
 
 
-def get_members(account_id: int) -> list[User]:
-    with _pool.connection() as conn:
-        with conn.cursor(row_factory=class_row(User)) as cur:
-            cur.execute(
-                """SELECT u.* FROM ulb_users u
-                   JOIN ulb_account_members m ON m.user_id = u.id
-                   WHERE m.account_id = %s ORDER BY u.display_name""",
-                (account_id,),
-            )
-            return cur.fetchall()
-
-
-def add_member(account_id: int, user_id: int) -> None:
-    with _pool.connection() as conn:
-        conn.execute(
-            """INSERT INTO ulb_account_members (account_id, user_id, created_at)
-               VALUES (%s, %s, %s) ON CONFLICT DO NOTHING""",
-            (account_id, user_id, _now()),
-        )
-
-
-def remove_member(account_id: int, user_id: int) -> bool:
-    """Remove a member. Refuses to remove the last one (that would orphan the account)."""
-    with _pool.connection() as conn:
-        remaining = conn.execute(
-            "SELECT count(*) AS n FROM ulb_account_members WHERE account_id = %s", (account_id,)
-        ).fetchone()["n"]
-        if remaining <= 1:
-            return False
-        conn.execute(
-            "DELETE FROM ulb_account_members WHERE account_id = %s AND user_id = %s",
-            (account_id, user_id),
-        )
-    return True
-
-
 def transfer_sole_owned_accounts(user_id: int, to_user_id: int) -> int:
     """Hand over the accounts ``user_id`` is the only member of. Returns how many.
 
     Call this before deleting a user: their memberships cascade away with them,
     and an account with no members is invisible to everyone — while its timers
-    keep booking. Accounts they share with someone else are left alone.
+    keep booking.
     """
     with _pool.connection() as conn:
         cur = conn.execute(
@@ -615,16 +609,15 @@ def pop_challenge(challenge_row_id: int, purpose: str) -> dict | None:
 # ── Invites ──────────────────────────────────────────────────────────────────
 
 def create_invite(created_by: int | None, note: str | None = None,
-                  grants_admin: bool = False, account_id: int | None = None,
-                  ttl: timedelta = INVITE_TTL) -> str:
+                  grants_admin: bool = False, ttl: timedelta = INVITE_TTL) -> str:
     token = secrets.token_urlsafe(24)
     now = _now()
     with _pool.connection() as conn:
         conn.execute(
             """INSERT INTO ulb_invites
-               (token, note, grants_admin, account_id, created_by, created_at, expires_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-            (token, note, grants_admin, account_id, created_by, now, now + ttl),
+               (token, note, grants_admin, created_by, created_at, expires_at)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (token, note, grants_admin, created_by, now, now + ttl),
         )
     return token
 
@@ -671,27 +664,23 @@ def create_job(account_id: int, data: dict) -> int:
     with _pool.connection() as conn:
         row = conn.execute(
             """INSERT INTO ulb_jobs
-               (account_id, name, library_id, time_slot, group_room, preferred_section,
-                recurring, cron_days, date_offset, cron_hour, cron_minute,
-                run_at, target_date, enabled, created_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               (account_id, name, library_id, time_slot, category, preferred_section,
+                recurring, cron_days, target_date, enabled, created_at, preferred_seats)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                RETURNING id""",
             (
                 account_id,
                 data["name"],
                 data["library_id"],
                 data["time_slot"],
-                bool(data.get("group_room", False)),
+                data["category"],
                 data.get("preferred_section"),
                 bool(data.get("recurring", False)),
                 data.get("cron_days"),
-                data.get("date_offset"),
-                data.get("cron_hour"),
-                data.get("cron_minute"),
-                data.get("run_at"),
                 data.get("target_date"),
                 bool(data.get("enabled", True)),
                 _now(),
+                data.get("preferred_seats", []),
             ),
         ).fetchone()
     return row["id"]
@@ -735,25 +724,21 @@ def update_job(job_id: int, data: dict) -> None:
     with _pool.connection() as conn:
         conn.execute(
             """UPDATE ulb_jobs SET
-               name=%s, library_id=%s, time_slot=%s, group_room=%s,
+               name=%s, library_id=%s, time_slot=%s, category=%s,
                preferred_section=%s, recurring=%s,
-               cron_days=%s, date_offset=%s, cron_hour=%s, cron_minute=%s,
-               run_at=%s, target_date=%s, enabled=%s
+               cron_days=%s, target_date=%s, enabled=%s, preferred_seats=%s
                WHERE id=%s""",
             (
                 data["name"],
                 data["library_id"],
                 data["time_slot"],
-                bool(data.get("group_room", False)),
+                data["category"],
                 data.get("preferred_section"),
                 bool(data.get("recurring", False)),
                 data.get("cron_days"),
-                data.get("date_offset"),
-                data.get("cron_hour"),
-                data.get("cron_minute"),
-                data.get("run_at"),
                 data.get("target_date"),
                 bool(data.get("enabled", True)),
+                data.get("preferred_seats", []),
                 job_id,
             ),
         )
@@ -783,16 +768,16 @@ def disable_job(job_id: int) -> None:
 
 def log_booking_start(account_id: int | None, job_id: int | None, job_name: str,
                       library_id: int, target_date: date, time_slot: str,
-                      group_room: bool, manual: bool = False) -> int:
+                      category: int, manual: bool = False) -> int:
     with _pool.connection() as conn:
         row = conn.execute(
             """INSERT INTO ulb_booking_log
-               (account_id, job_id, job_name, library_id, target_date, time_slot, group_room,
+               (account_id, job_id, job_name, library_id, target_date, time_slot, category,
                 status, started_at, manual)
                VALUES (%s, %s, %s, %s, %s, %s, %s, 'running', %s, %s)
                RETURNING id""",
             (account_id, job_id, job_name, library_id, target_date, time_slot,
-             group_room, _now(), manual),
+             category, _now(), manual),
         ).fetchone()
     return row["id"]
 

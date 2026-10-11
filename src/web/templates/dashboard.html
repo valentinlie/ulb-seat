@@ -1,49 +1,113 @@
 {% extends "base.html" %}
-{% set active_page = "dashboard" %}
+{% set active_page = "book" %}
 
 {% block title %}Dashboard - ULB Reservation{% endblock %}
 
 {% block content %}
-<h2>Dashboard</h2>
+{% if notice %}<div role="alert" class="alert-success">{{ notice }}</div>{% endif %}
+{% if error %}<div role="alert" class="alert-error">{{ error }}</div>{% endif %}
 
+{% if account %}
 <section>
-    <h3>Enabled Jobs ({{ jobs|length }})</h3>
-    {% if jobs %}
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Library</th>
-                <th>Time Slot</th>
-                <th>Type</th>
-                <th>Schedule</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for job in jobs %}
-            <tr>
-                <td><a href="/jobs/{{ job.id }}/edit">{{ job.name }}</a></td>
-                <td>{{ libraries.get(job.library_id, job.library_id) }}</td>
-                <td>{{ job.time_slot }}</td>
-                <td>{{ "Recurring" if job.recurring else "One-shot" }}</td>
-                <td>
-                    {% if job.recurring %}
-                        for {{ job.cron_days }} (+{{ job.date_offset }}d ahead), triggers {{ "%02d"|format(job.cron_hour) }}:{{ "%02d"|format(job.cron_minute) }}
-                    {% else %}
-                        {% if job.run_at %}{{ job.run_at.strftime("%d.%m.%Y %H:%M") }}{% elif job.target_date %}{{ job.target_date.strftime("%d.%m.%Y") }}{% endif %}
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <h2>Your reservations</h2>
+    {% for section in account.sections if section.reservations and section.title in ("Aktuelle Reservierung", "Zukünftige Reservierungen") %}
+        <h4>{{ section.title }}</h4>
+        {% for r in section.reservations %}
+        <article class="reservation">
+            <strong>{{ r.when }}</strong><br>
+            {% for line in r.lines %}<small>{{ line }}</small><br>{% endfor %}
+            <div class="chips">
+                {% if r.swap %}<a role="button" class="outline" href="/reservations/{{ r.id }}/swap">Swap seat</a>{% endif %}
+                {% if r.cancel %}
+                <form method="post" action="/reservations/{{ r.id }}/cancel" onsubmit="return confirm('Cancel this reservation?')">
+                    <button type="submit" class="outline secondary">Cancel</button>
+                </form>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
     {% else %}
-    <p>No enabled jobs. <a href="/jobs/new">Create one</a>.</p>
+        <p class="muted">No current or upcoming reservations.</p>
+    {% endfor %}
+
+    {% for w in weeks %}
+    <div class="points">
+        <div class="points-head">
+            <strong>{{ w.label }}</strong>
+            <span><strong>{{ w.left }}</strong> / {{ points_per_week }} points left · {{ w.count }} bookings left</span>
+        </div>
+        <div class="bar" role="img"
+             aria-label="{{ w.left }} of {{ points_per_week }} points left, {{ w.after }} after enabled jobs">
+            <div class="bar-planned" style="width: {{ w.left_pct }}%"></div>
+            <div class="bar-after" style="width: {{ w.after_pct }}%"></div>
+        </div>
+        {% if w.planned %}
+        <small class="{{ 'points-over' if w.after < 0 else 'muted' }}">
+            Enabled jobs would still use {{ w.planned }} points this week →
+            {% if w.after < 0 %}{{ -w.after }} more than you have{% else %}{{ w.after }} left{% endif %}.
+        </small>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% if weeks %}
+    <p><small class="muted">60 points per booked hour. Same-day (last-minute) bookings are free.
+        Striped: what your enabled jobs would still book.</small></p>
+    {% endif %}
+
+    {% set past = account.sections | rejectattr("title", "in", ["Aktuelle Reservierung", "Zukünftige Reservierungen"]) | list %}
+    {% if past | map(attribute="reservations") | select | list %}
+    <details>
+        <summary>Past and cancelled</summary>
+        {% for section in past if section.reservations %}
+            <h5>{{ section.title }}</h5>
+            {% for r in section.reservations %}
+            <p><strong>{{ r.when }}</strong><br>{% for line in r.lines %}<small>{{ line }}</small><br>{% endfor %}</p>
+            {% endfor %}
+        {% endfor %}
+    </details>
     {% endif %}
 </section>
+{% endif %}
 
 <section>
-    <h3>Recent Bookings</h3>
-    {% include "partials/history_list.html" %}
+    <h2>Jobs</h2>
+    {% if jobs %}
+    <ul>
+        {% for job in jobs %}
+        <li>
+            <a href="/jobs/{{ job.id }}/edit">{{ job.name }}</a> —
+            {{ libraries.get(job.library_id, job.library_id) }}, {{ job.time_slot }},
+            {% if job.recurring %}every {{ job.cron_days }}{% elif job.target_date %}{{ job.target_date.strftime("%d.%m.%Y") }}{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No enabled jobs.</p>
+    {% endif %}
+    <p><small class="muted">Jobs book automatically the moment a date opens ({{ opening }}). <a href="/jobs">Manage jobs</a></small></p>
 </section>
+
+{% if days %}
+<section>
+    <h2>Book a seat</h2>
+    <div class="days">
+        {% for day in days %}
+        <article>
+            <header><strong>{{ day.title }}</strong></header>
+            {% if day.categories %}
+            <ul>
+                {% for c in day.categories %}
+                <li>
+                    {% if c.cat %}<a href="/book?date={{ c.date }}&cat={{ c.cat }}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}<br>
+                    <small class="muted">{{ c.load }}{% if c.last_minute %} · last-minute, free{% endif %}</small>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% if day.notice %}<small>{{ day.notice }}</small>{% endif %}
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
 {% endblock %}

@@ -30,7 +30,7 @@ function showError(message) {
 }
 
 /** Create a passkey: fetch options, run the browser ceremony, verify server-side. */
-async function createPasskey(optionsUrl, verifyUrl, startBody) {
+async function createPasskey(optionsUrl, verifyUrl, startBody, name) {
     const start = await postJSON(optionsUrl, startBody);
     const options = start.options;
     options.challenge = b64uToBuf(options.challenge);
@@ -40,6 +40,7 @@ async function createPasskey(optionsUrl, verifyUrl, startBody) {
     const cred = await navigator.credentials.create({publicKey: options});
     return postJSON(verifyUrl, {
         ceremony: start.ceremony,
+        name: name || null,
         credential: {
             id: cred.id,
             rawId: bufToB64u(cred.rawId),

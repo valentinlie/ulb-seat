@@ -1,18 +1,14 @@
-"""SSO authentication and captcha form handling."""
+"""SSO authentication."""
 
-import base64
 import json
 import logging
 import os
-import re
 import time
 from pathlib import Path
-from urllib.parse import urljoin
 
 import requests
 
-from config import BASE_URL, MAX_CAPTCHA_RETRIES
-from core.captcha import solve_captcha
+from config import BASE_URL
 from core.exceptions import BookingError
 
 log = logging.getLogger(__name__)
@@ -78,7 +74,7 @@ def login(session: requests.Session, account) -> str:
     Reuses cached cookies when the session is still valid, so repeated bookings
     do not re-authenticate; falls back to a fresh credential POST otherwise.
     """
-    log.info("[1/6] Logging in via SSO as %s...", account.sso_username)
+    log.info("[1/4] Logging in via SSO as %s...", account.sso_username)
 
     # Try a cached session first — one GET tells us if it is still logged in.
     if _load_cookies(session, account):
@@ -107,95 +103,3 @@ def login(session: requests.Session, account) -> str:
     _save_cookies(session, account)
     log.info("  Logged in successfully.")
     return resp.text
-
-
-def handle_captcha(session: requests.Session, html: str, library_number: str) -> None:
-    """Solve the captcha and submit the confirmation form."""
-    log.info("[2/6] Solving captcha...")
-
-    for attempt in range(1, MAX_CAPTCHA_RETRIES + 1):
-        # Extract captcha image (base64 inline JPEG)
-        m = re.search(r"data:image/jpeg;base64,([^'\"]+)", html)
-        if not m:
-            # No captcha on page — already registered, just need to start a new reservation
-            if "Neue Platzreservierung starten" in html:
-                start_link = re.search(r'href="([^"]*)"[^>]*>Neue Platzreservierung starten', html)
-                if start_link:
-                    log.info("  Already registered, starting new reservation...")
-                    new_resp = session.get(urljoin(BASE_URL, start_link.group(1)))
-                    html = new_resp.text
-                    continue  # new page likely has a captcha — solve it
-                log.info("  Already registered, no start link found.")
-                return
-            if "Schnellübersicht" in html:
-                log.info("  Already registered, no captcha needed.")
-                return
-            raise BookingError("Could not find captcha image.")
-
-        image_bytes = base64.b64decode(m.group(1))
-        captcha_text = solve_captcha(image_bytes)
-        log.info("  Attempt %d: recognized '%s'", attempt, captcha_text)
-
-        if len(captcha_text) != 6:
-            log.info("  OCR result has wrong length, retrying...")
-            # Re-fetch the page for a new captcha
-            html = session.get(BASE_URL).text
-            continue
-
-        # Extract form token
-        token_match = re.search(
-            r'name="sform_token"\s+value="([^"]+)"', html
-        )
-        if not token_match:
-            raise BookingError("Could not find sform_token.")
-
-        resp = session.post(
-            urljoin(BASE_URL, "index.php"),
-            data={
-                "sform_token": token_match.group(1),
-                "sform_step": "3",
-                "mod": "000",
-                "benutzernummer": library_number,
-                "datenschutzerklaerung_akzeptiert": "X",
-                "captcha": captcha_text,
-            },
-            allow_redirects=True,
-        )
-
-        if "Erfolg" in resp.text:
-            log.info("  Captcha solved successfully!")
-            # Follow the "Weiter" link if present
-            weiter = re.search(r'href="([^"]*)"[^>]*class="[^"]*ym-success[^"]*"', resp.text)
-            if weiter:
-                session.get(urljoin(BASE_URL, weiter.group(1)))
-            return
-
-        # Check for an explicit captcha rejection BEFORE the already-registered
-        # checks: the rejection page also contains a "Neue Platzreservierung
-        # starten" link, which previously masked wrong captchas as "already
-        # registered" and looped without ever reporting the real problem.
-        if "Captcha-Code ist falsch" in resp.text:
-            log.info("  Captcha rejected, retrying...")
-            # The rejection page already contains a fresh captcha + form
-            html = resp.text
-            continue
-
-        if "Neue Platzreservierung starten" in resp.text:
-            start_link = re.search(r'href="([^"]*)"[^>]*>Neue Platzreservierung starten', resp.text)
-            if start_link:
-                log.info("  Already registered, starting new reservation...")
-                new_resp = session.get(urljoin(BASE_URL, start_link.group(1)))
-                html = new_resp.text
-                continue  # new page likely has a captcha — solve it
-            log.info("  Already registered, no start link found.")
-            return
-        if "Schnellübersicht" in resp.text:
-            log.info("  Already registered, no captcha needed.")
-            return
-
-        log.info("  Unexpected response after captcha submit, retrying...")
-        # Re-fetch for new captcha
-        resp = session.get(BASE_URL)
-        html = resp.text
-
-    raise BookingError("Failed to solve captcha after max retries.")

@@ -1,24 +1,26 @@
 # ULB Seat Reservation Bot
 
 Automated library seat reservation for [ULB Münster](https://www.ulb.uni-muenster.de/).
-Schedule recurring or one-shot bookings through a web dashboard, or run a quick booking from the command line.
+Book right away in a live view of the ULB booking site, schedule recurring or one-shot bookings that fire
+the moment a date opens, or run a quick booking from the command line.
 
 ## Features
 
-- **Web dashboard** -- manage jobs, view booking history, trigger manual runs
-- **Recurring jobs** -- book seats automatically on specific days of the week
+- **Live view** -- replaces the ULB site: occupancy per day, free time ranges per library, pick a seat
+  and book it; see your points, cancel or swap seats
+- **Recurring jobs** -- book automatically on specific days of the week
 - **One-shot jobs** -- schedule a single booking for a specific date
+- **Seats, group tables and group rooms** -- all three ULB categories
 - **Passkey login** -- no passwords; invitation-only, several people per instance
-- **Multiple ULB accounts** -- one login can manage and switch between accounts, and an account can be shared
+- **Multiple ULB accounts** -- one login can manage and switch between its accounts
 - **CLI** -- book a seat directly from the terminal
-- **Captcha solving** -- OCR-based (Tesseract) automatic captcha handling
-- **Seat preferences** -- per account, set in the dashboard: tries your preferred seats first, falls back to any available
+- **Seat preferences** -- per job: tries your preferred seats first, falls back to a random free one
 
 ### Who owns what
 
 - A **user** is a person, identified by one or more **passkeys** (phone, laptop, security key).
 - An **account** is a ULB login: SSO credentials plus a library card number. Jobs and booking history belong to an account.
-- **Membership** links them many-to-many, so one passkey login can manage several accounts, and one account can be shared with several people.
+- Every account belongs to exactly one user; one passkey login can manage several accounts.
 - Signing up is **invitation only**. Admins mint single-use invitation links; the first user is created from the command line and is automatically an admin.
 
 ## Requirements
@@ -26,21 +28,7 @@ Schedule recurring or one-shot bookings through a web dashboard, or run a quick 
 - Python 3.13+
 - PostgreSQL
 - A domain with HTTPS -- passkeys only work in a secure context (`localhost` is fine for development)
-- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) (system package)
 - [uv](https://docs.astral.sh/uv/) (package manager)
-
-Install Tesseract on your system:
-
-```bash
-# Debian / Ubuntu
-sudo apt install tesseract-ocr
-
-# Arch
-sudo pacman -S tesseract
-
-# macOS
-brew install tesseract
-```
 
 ## Setup
 
@@ -64,29 +52,26 @@ Copy the example below and fill in your credentials. This file is git-ignored.
 
 ULB credentials are **not** configured here -- they are entered in the dashboard,
 stored encrypted, and there can be several sets of them (one per account).
-Neither are seat preferences: they belong to an account and are edited under
-Settings.
+Neither are seat preferences: they belong to a job and are edited with it.
 
 ```python
 """Configuration for ULB seat reservation."""
 
-MAX_CAPTCHA_RETRIES = 5
-
 BASE_URL = "https://sso.uni-muenster.de/ULB/sso/wwu/platzreservierung/"
 
-# ── Libraries ────────────────────────────────────────────────────────────────
+# ── Libraries (names must match the booking site's section headings) ──
 LIBRARIES = {
     1:   "Zentralbibliothek",
     18:  "Rechtswissenschaftliches Seminar I (RWS I)",
-    19:  "RWS II (Kriminalwissenschaften)",
-    22:  "Wirtschaftswissenschaften (Forum Oeconomicum)",
+    19:  "Rechtswissenschaftliches Seminar II, Abteilung Kriminalwissenschaften (RWS II)",
+    22:  "Fachbereichsbibliothek Wirtschaftswissenschaften (Forum Oeconomicum)",
     37:  "Medizin-Bibliothek",
-    38:  "Erziehungswissenschaft & Kommunikationswissenschaft",
+    38:  "Bibliothek für Erziehungswissenschaft und Kommunikationswissenschaft",
     41:  "Zweigbibliothek Sozialwissenschaften",
-    42:  "Psychologie",
+    42:  "Bibliothek für Psychologie",
     45:  "Bibliotheken im Fürstenberghaus",
     104: "Bibliotheken im Philosophikum",
-    105: "Vom-Stein-Haus (Germanistik)",
+    105: "Bibliothek im Vom-Stein-Haus (Germanistik & Didaktik der Biologie)",
 }
 
 # ── PostgreSQL ───────────────────────────────────────────────────────────────
@@ -157,39 +142,49 @@ Open the dashboard and sign in with your passkey.
 
 From the dashboard you can:
 
-- **Add a ULB account** -- Accounts > Add ULB account (SSO login + library card)
-- **Switch accounts** with the selector in the nav bar; jobs and history always
-  belong to the account currently selected
-- **Share an account** with another user from its edit page -- they can then
-  manage its jobs
+- **Book right away** on the start page: pick a day and category, the time
+  range, then a seat (your preferred ones are listed first). Your points and
+  reservations are shown there too, with **Cancel** and **Swap seat**
+- **Add a ULB account** -- Settings > Add ULB account
+  (SSO login + library card)
+- **Switch accounts** with "Use" in Settings; jobs and history always belong to
+  the account currently selected
+- **Hide libraries** you never go to, in Settings -- applies to all your accounts
 - **Create jobs** -- go to Jobs > New Job
 - **Toggle jobs** on/off
 - **Run a job immediately** with the "Run Now" button
 - **View booking history** with status and error messages
-- **Set seat preferences** under your name in the nav bar > Settings: seat and
-  group room numbers to try first, in order, for the account currently selected
+- **Set seat preferences** on each job: seat or group room numbers (the number
+  a name ends with: 2 for "Kabine G2") to try first, in order; empty means a
+  random free one
 - **Add more passkeys** under your name in the nav bar, so you can still sign in
   if you lose a device
-- **Invite people** under Admin (admins only): a single-use link that optionally
-  pre-shares one of your ULB accounts and can grant admin rights
+- **Invite people** under Admin (admins only): a single-use link that can grant
+  admin rights
 
-Removing a user deletes their passkeys and access. Accounts they shared stay put
-unless they were the only member.
+Removing a user deletes their passkeys and access; the admin who removes them
+takes over their ULB accounts.
 
 #### Job types
 
-**Recurring** -- runs on a cron schedule. You specify:
+Every job fires the moment the ULB opens its date -- 09:00, three days ahead
+(`DAYS_AHEAD` / `OPENS_AT` in `core/booking.py`). If the site is a few seconds
+late, the worker retries for up to a minute.
 
-- Which days you want a seat (e.g. Mon-Fri)
-- How many days in advance to book (offset)
-- What time to trigger the booking
+**Recurring** -- you specify which days you want a seat (e.g.
+`mon,tue,wed,thu,fri`); the timer fires three days before each of them.
 
-Example: to always have a seat on weekday mornings, set days to `mon,tue,wed,thu,fri`, offset to `3`, and trigger time to `00:01`. The scheduler calculates the correct trigger day automatically.
+#### Booking rules (ULB, since October 2026)
 
-**One-shot** -- runs once at a specific date and time, then disables itself. You specify:
+- Bookings open **3 days ahead at 09:00** (e.g. Tuesday opens Saturday 09:00).
+- Start and end are free whole hours, so the time slot can be any `HH:00-HH:00` range the library is open.
+- Per calendar week (Mon-Sun): at most **10 bookings** and **3,600 points**; every booked hour costs 60 points.
+  Same-day ("last-minute") bookings are free. Plan recurring jobs within that budget -- e.g. 5 x 12 h. The dashboard shows a points bar per week, with what your enabled jobs would still use.
+- Cancelling at least 24 h ahead refunds the points.
 
-- The target date (when you want the seat)
-- The trigger date and time (when to attempt the booking)
+**One-shot** -- you specify the target date; it fires once when that date opens,
+then disables itself. A date that is already open is rejected -- book it in the
+live view instead.
 
 ### CLI
 
@@ -204,8 +199,8 @@ uv run python src/cli.py book --date-offset 3 --time "08:00-12:00"
 # Book at a specific library on a specific date
 uv run python src/cli.py book --library 22 --date "20.03.2026" --time "12:00-16:00"
 
-# Book a group room
-uv run python src/cli.py book --date-offset 2 --time "08:00-12:00" --group-room
+# Book a group room (or --category table for a group table)
+uv run python src/cli.py book --date-offset 2 --time "08:00-12:00" --category room
 
 # Prefer a specific section
 uv run python src/cli.py book --date-offset 3 --time "08:00-12:00" --section "Hauptlesesaal"
@@ -220,7 +215,7 @@ User management from the terminal:
 uv run python src/cli.py invite --note "for Bob" --days 7   # single-use link
 uv run python src/cli.py invite --admin --note "co-admin"   # can invite others
 uv run python src/cli.py users                              # who has access
-uv run python src/cli.py accounts                           # ULB accounts + members
+uv run python src/cli.py accounts                           # ULB accounts
 ```
 
 Other commands: `jobs` (list saved jobs), `run-job <id>` (fire a saved job — the
@@ -255,7 +250,7 @@ Put a TLS-terminating reverse proxy in front of `ulb-web.socket` and point
 are sent with `Secure` unless you set `COOKIE_SECURE = False`.
 
 > **Enable lingering** so timers fire even when you are not logged in — bookings
-> at 00:01 depend on it:
+> at 09:00 depend on it:
 >
 > ```bash
 > sudo loginctl enable-linger "$USER"
@@ -273,13 +268,12 @@ ulb-seat/
     ├── cli.py                  # CLI entry point
     │
     ├── core/
-    │   ├── auth.py             # SSO login and captcha flow (per ULB account)
+    │   ├── auth.py             # SSO login (per ULB account)
     │   ├── booking.py          # Booking orchestration
-    │   ├── captcha.py          # Tesseract OCR captcha solver
     │   ├── crypto.py           # AES-256-GCM encryption of stored ULB passwords
     │   ├── db.py               # PostgreSQL access (users, accounts, jobs, log)
-    │   ├── exceptions.py       # BookingError
-    │   ├── reservation.py      # Timeslot search, seat selection, reservation
+    │   ├── exceptions.py       # BookingError, NotOpenYet
+    │   ├── reservation.py      # Booking-site parsers, timeslot search, seat selection
     │   ├── worker.py           # Execute one scheduled job, then exit
     │   └── systemd.py          # Generate per-job timers + web units
     │
@@ -289,9 +283,9 @@ ulb-seat/
         ├── passkeys.py         # WebAuthn ceremonies
         ├── routes/
         │   ├── auth.py         # Passkey login, invitations, /settings
-        │   ├── accounts.py     # ULB accounts, members, switching
+        │   ├── accounts.py     # ULB accounts, switching
         │   ├── admin.py        # Invitations and users
-        │   ├── dashboard.py    # GET /
+        │   ├── live.py         # Live view: book, cancel, swap (GET /)
         │   ├── jobs.py         # Job CRUD + manual run
         │   └── history.py      # GET /history
         └── templates/          # Jinja2 templates (Pico CSS + HTMX)

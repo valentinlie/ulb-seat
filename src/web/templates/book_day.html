@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% set active_page = "book" %}
+
+{% block title %}{{ categories[cat] }} {{ day.strftime("%d.%m.") }} - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>{{ categories[cat] }} · {{ day.strftime("%A, %d.%m.%Y") }}</h2>
+
+<div class="chips">
+    {% for d in days %}
+    <a role="button" class="{{ '' if d == day else 'outline' }}" href="/book?date={{ d.isoformat() }}&cat={{ cat }}&start={{ start }}&end={{ end }}">{{ d.strftime("%a %d.%m.") }}</a>
+    {% endfor %}
+</div>
+<div class="chips">
+    {% for cid, cname in categories.items() %}
+    <a role="button" class="secondary {{ '' if cid == cat else 'outline' }}" href="/book?date={{ day.isoformat() }}&cat={{ cid }}&start={{ start }}&end={{ end }}">{{ cname }}</a>
+    {% endfor %}
+</div>
+
+{% if error %}<div role="alert" class="alert-error">{{ error }}</div>{% endif %}
+{% if info %}<p class="muted">{{ info }}</p>{% endif %}
+
+{% if starts %}
+<form method="get" action="/book" class="grid">
+    <input type="hidden" name="date" value="{{ day.isoformat() }}">
+    <input type="hidden" name="cat" value="{{ cat }}">
+    <label>From
+        <select name="start">
+            <option value="">–</option>
+            {% for t in starts %}<option {{ "selected" if t == start }}>{{ t }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>To
+        <select name="end">
+            <option value="">–</option>
+            {% for t in ends %}<option {{ "selected" if t == end }}>{{ t }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>&nbsp;<button type="submit">Show free places</button></label>
+</form>
+{% endif %}
+
+{% for library, sections in by_library.items() %}
+<h4>{{ library }}</h4>
+<table>
+    <tbody>
+    {% for sec in sections %}
+        <tr>
+            <td>{{ sec.name.split(" / ", 1)[-1] }}</td>
+            <td>
+                {% if sec.range %}free between {{ sec.range[0] }} and {{ sec.range[1] }}{% else %}<span class="muted">{{ sec.status or "nothing bookable" }}</span>{% endif %}
+            </td>
+            <td class="actions">
+                {% if sec.chosen %}
+                <a role="button" href="/book/slot/{{ sec.chosen }}">{{ start }}–{{ end }}: choose seat</a>
+                {% elif start and end and sec.range %}
+                <span class="muted">{{ start }}–{{ end }} not free</span>
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endfor %}
+
+{% if hidden_count %}<p class="muted"><small>{{ hidden_count }} {{ "library" if hidden_count == 1 else "libraries" }} hidden — <a href="/settings">change in Settings</a>.</small></p>{% endif %}
+{% if starts and not (start and end) %}<p class="muted">Pick a time above to see where it is free.</p>{% endif %}
+<p><a href="/">← Back</a></p>
+{% endblock %}

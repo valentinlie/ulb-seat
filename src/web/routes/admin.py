@@ -22,7 +22,6 @@ def _admin_page(request: Request, auth: Auth, new_token: str | None = None):
         request, auth=auth,
         users=users,
         invites=db.get_all_invites(),
-        accounts=db.get_all_accounts(),
         new_token=new_token,
         admin_count=sum(1 for u in users if u.is_admin),
         now=db.now(),
@@ -42,17 +41,14 @@ def create_invite(
     request: Request,
     note: str = Form(""),
     grants_admin: bool = Form(False),
-    account_id: str = Form(""),
     ttl_days: int = Form(14),
     auth: Auth = Depends(require_admin),
 ):
-    """Mint an invitation link. Optionally pre-shares one ULB account with them."""
-    shared = int(account_id) if account_id else None
+    """Mint an invitation link."""
     token = db.create_invite(
         created_by=auth.user.id,
         note=note.strip() or None,
         grants_admin=grants_admin,
-        account_id=shared,
         ttl=timedelta(days=max(1, min(ttl_days, 90))),
     )
     return _admin_page(request, auth, new_token=token)

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% set active_page = "book" %}
+{% set swapping = action.startswith("/reservations/") %}
+
+{% block title %}{{ "Swap seat" if swapping else "Choose a seat" }} - ULB Reservation{% endblock %}
+
+{% block content %}
+<h2>{{ "Swap seat" if swapping else "Choose a seat" }}</h2>
+
+<table>
+    <tbody>
+    {% for label, lines in details.items() if label not in ("links", "Fehler") %}
+        <tr><th>{{ label }}</th><td>{% for line in lines %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% for text, url in details.links %}<a href="{{ url }}" target="_blank" rel="noopener">{{ text }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+
+{% if details.Fehler %}<div role="alert" class="alert-error">{{ details.Fehler | join(" ") }}</div>{% endif %}
+
+{% if seats %}
+<form method="post" action="{{ action }}">
+    <input type="hidden" name="locslot_id" value="{{ locslot_id }}">
+    <input type="hidden" name="library_id" value="{{ library_id }}">
+    <input type="hidden" name="target_date" value="{{ target_date }}">
+    <input type="hidden" name="time_slot" value="{{ time_slot }}">
+    <input type="hidden" name="category" value="{{ category }}">
+
+    {% if not swapping %}
+    <section>
+        <button type="submit" name="seat_id" value="{{ best[0] }}">Book {{ best[1] }}</button>
+        <small class="muted">{{ "your first free preferred seat" if preferred else "random free seat" }}</small>
+    </section>
+    {% endif %}
+
+    {% if preferred %}
+    <h4>Preferred in your jobs</h4>
+    <div class="chips">
+        {% for seat_id, name, note in preferred %}
+        <button type="submit" name="seat_id" value="{{ seat_id }}" class="preferred" title="{{ note }}">{{ name }}</button>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <h4>All free ({{ seats | length }})</h4>
+    {% if seats | selectattr(2) | list %}
+        {% for seat_id, name, note in seats %}
+        <p><button type="submit" name="seat_id" value="{{ seat_id }}" class="outline">{{ name }}</button> <small>{{ note }}</small></p>
+        {% endfor %}
+    {% else %}
+    <div class="chips">
+        {% for seat_id, name, note in seats %}
+        <button type="submit" name="seat_id" value="{{ seat_id }}" class="outline">{{ name }}</button>
+        {% endfor %}
+    </div>
+    {% endif %}
+</form>
+{% elif not details.Fehler %}
+<p>No free places left.</p>
+{% endif %}
+
+<p><a href="javascript:history.back()">← Back</a></p>
+{% endblock %}

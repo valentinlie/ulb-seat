@@ -6,13 +6,17 @@ A systemd timer (``ulb-book@<id>.timer``) fires the template service
 """
 
 import logging
+import time
 from datetime import date, timedelta
 
 from core import db
-from core.booking import execute_booking
-from core.exceptions import BookingError
+from core.booking import DAYS_AHEAD, execute_booking
+from core.exceptions import BookingError, NotOpenYet
 
 log = logging.getLogger(__name__)
+
+RETRIES_UNTIL_OPEN = 30
+RETRY_DELAY = 2  # seconds
 
 
 def run_job(job_id: int) -> None:
@@ -30,8 +34,8 @@ def run_job(job_id: int) -> None:
         log.error("Job %d has no ULB account attached, skipping.", job_id)
         return
 
-    if job.recurring and job.date_offset is not None:
-        target_date = date.today() + timedelta(days=job.date_offset)
+    if job.recurring:
+        target_date = date.today() + timedelta(days=DAYS_AHEAD)
     elif job.target_date:
         target_date = job.target_date
     else:
@@ -45,18 +49,29 @@ def run_job(job_id: int) -> None:
         library_id=job.library_id,
         target_date=target_date,
         time_slot=job.time_slot,
-        group_room=job.group_room,
+        category=job.category,
     )
 
     try:
-        result = execute_booking(
-            account=account,
-            library_id=job.library_id,
-            date=target_date.strftime("%d.%m.%Y"),
-            time_slot=job.time_slot,
-            group_room=job.group_room,
-            preferred_section=job.preferred_section or "",
-        )
+        # The timer fires right at opening time; if our clock is a little
+        # ahead of the ULB's, the date is not open yet — keep trying a minute.
+        for attempt in range(RETRIES_UNTIL_OPEN + 1):
+            try:
+                result = execute_booking(
+                    account=account,
+                    library_id=job.library_id,
+                    date=target_date.strftime("%d.%m.%Y"),
+                    time_slot=job.time_slot,
+                    category=job.category,
+                    preferred_section=job.preferred_section or "",
+                    preferred_seats=job.preferred_seats,
+                )
+                break
+            except NotOpenYet:
+                if attempt == RETRIES_UNTIL_OPEN:
+                    raise
+                log.info("Date not open yet, retrying in %ds...", RETRY_DELAY)
+                time.sleep(RETRY_DELAY)
         db.log_booking_finish(log_id, "success", result.get("seat_desc"), result.get("message"))
         log.info("Job %d (%s) succeeded: %s", job_id, job.name, result.get("message"))
     except BookingError as e:
