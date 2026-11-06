@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 # When the ULB opens a date for booking — the same for every job.
 DAYS_AHEAD = 3
-OPENS_AT = time(9, 0)
+OPENS_AT = time(7, 0)
 TZ = ZoneInfo("Europe/Berlin")
 POINTS_PER_HOUR = 60
 POINTS_PER_WEEK = 3600  # a full points bar
@@ -22,7 +22,7 @@ WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
 def opens_at(target: date) -> datetime:
-    """The moment bookings for ``target`` open (09:00, three days before)."""
+    """The moment bookings for ``target`` open (07:00, three days before)."""
     return datetime.combine(target - timedelta(days=DAYS_AHEAD), OPENS_AT, tzinfo=TZ)
 
 

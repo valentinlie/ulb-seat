@@ -3,7 +3,7 @@
 Scale-to-zero, same shape as the Zara checker:
 
 - Each enabled job gets a ``ulb-book@<id>.timer`` that fires when the ULB
-  opens its target date for booking (09:00, three days ahead — see
+  opens its target date for booking (07:00, three days ahead — see
   ``core.booking``). It fires the template service
   ``ulb-book@<id>.service`` (a ``oneshot`` running ``cli.py run-job <id>``),
   so nothing of ours runs until a booking is actually due.

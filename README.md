@@ -167,7 +167,7 @@ takes over their ULB accounts.
 
 #### Job types
 
-Every job fires the moment the ULB opens its date -- 09:00, three days ahead
+Every job fires the moment the ULB opens its date -- 07:00, three days ahead
 (`DAYS_AHEAD` / `OPENS_AT` in `core/booking.py`). If the site is a few seconds
 late, the worker retries for up to a minute.
 
@@ -176,7 +176,7 @@ late, the worker retries for up to a minute.
 
 #### Booking rules (ULB, since October 2026)
 
-- Bookings open **3 days ahead at 09:00** (e.g. Tuesday opens Saturday 09:00).
+- Bookings open **3 days ahead at 07:00** (e.g. Tuesday opens Saturday 07:00).
 - Start and end are free whole hours, so the time slot can be any `HH:00-HH:00` range the library is open.
 - Per calendar week (Mon-Sun): at most **10 bookings** and **3,600 points**; every booked hour costs 60 points.
   Same-day ("last-minute") bookings are free. Plan recurring jobs within that budget -- e.g. 5 x 12 h. The dashboard shows a points bar per week, with what your enabled jobs would still use.
@@ -250,7 +250,7 @@ Put a TLS-terminating reverse proxy in front of `ulb-web.socket` and point
 are sent with `Secure` unless you set `COOKIE_SECURE = False`.
 
 > **Enable lingering** so timers fire even when you are not logged in — bookings
-> at 09:00 depend on it:
+> at 07:00 depend on it:
 >
 > ```bash
 > sudo loginctl enable-linger "$USER"
